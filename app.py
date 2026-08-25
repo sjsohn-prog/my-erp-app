@@ -602,7 +602,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
             continue
     raise Exception(f"AI 모델 호출 실패: {last_err}")
 
-# ⭐ AI 수발신 발행자/수신자 파싱 포함
+# ⭐ 입체적 수발신 회사 및 담당자 추출 프롬프트
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -613,19 +613,24 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         Extract document details into JSON format matching the fixed header fields and item list.
         
         CRITICAL RULES FOR EXTRACTION:
-        1. HEADER & ISSUER/RECIPIENT EXTRACTION:
-           - Extract "issuer_company": The company who ISSUED/SENT this document (e.g. Vendor, Client, or 1Solution).
-           - Extract "recipient_company": The company TO WHOM this document is addressed (e.g. "To" field).
-           - Extract "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
+        1. ISSUER & RECIPIENT DETAILS:
+           - "issuer_company": Name of the company issuing/sending this document.
+           - "issuer_pic": Person Name / Contact PIC of the issuing company.
+           - "recipient_company": Name of the company to whom this doc is addressed (To).
+           - "recipient_attn": Person Name specified in "Attention" / "Attn" of this document.
 
-        2. ITEM TABLE EXTRACTION:
-           - Parse ALL rows inside line items table.
-           - "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
+        2. HEADER FIELDS EXTRACTION:
+           - "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
+
+        3. ITEM TABLE EXTRACTION:
+           - Parse ALL rows inside line items table: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
             "issuer_company": "",
+            "issuer_pic": "",
             "recipient_company": "",
+            "recipient_attn": "",
             "to_name": "",
             "attn_name": "",
             "project_title": "",
@@ -717,7 +722,7 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (⭐ 유기적 수발신 반전 적용)
+# 6. 서류 통합 생성 (⭐ 유기적 수발신 및 Attention/PIC 입체 반전 적용)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -732,29 +737,43 @@ if menu == "서류 통합 생성":
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         
-        # ⭐ 유기적 수발신 반전(Role Reversal) 로직
-        recipient_check = (ai_data.get("recipient_company", "") + " " + ai_data.get("to_name", "")).lower()
+        # ⭐ 수신자/발행자 교대 검증
+        recip_comp = ai_data.get("recipient_company", "") or ai_data.get("to_name", "")
+        recip_attn = ai_data.get("recipient_attn", "") or ai_data.get("attn_name", "")
+        issuer_comp = ai_data.get("issuer_company", "")
+        issuer_pic = ai_data.get("issuer_pic", "") or ai_data.get("pic", "")
+
+        recipient_check = (recip_comp + " " + recip_attn).lower()
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
         
         if is_incoming_to_us:
-            # 상대방이 보낸 수신 문서인 경우: 상대방 발행처가 당사 회신서류의 수신처(To)가 됨
-            to_field_val = ai_data.get("issuer_company") or ai_data.get("attn_name") or ai_data.get("to_name", "")
-            your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "") # 상대방 Our Ref가 당사의 Your Ref가 됨
+            # 수신자가 원솔루션인 경우 (상대방이 당사로 보낸 문서 분석 시):
+            # 1. 수신처(To) -> 상대방 회사 (발행회사)
+            to_field_val = issuer_comp or recip_comp
+            # 2. 상대방 Attention -> 상대방 담당자/PIC (issuer_pic)
+            attn_field_val = issuer_pic
+            # 3. 당사 PIC -> 수신 문서의 Attention에 들어있던 원솔루션 담당자 (예: 최아름 님)
+            pic_field_val = recip_attn if recip_attn else st.session_state.get('user_email', '')
+            # 4. Ref 교대
+            your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "")
             our_ref_val = ""
         else:
-            to_field_val = ai_data.get("to_name", "")
+            # 당사가 발송했던 문서이거나 일반 발송용 문서인 경우
+            to_field_val = recip_comp
+            attn_field_val = recip_attn
+            pic_field_val = issuer_pic if issuer_pic else st.session_state.get('user_email', '')
             your_ref_val = ai_data.get("your_ref", "")
             our_ref_val = ai_data.get("our_ref", "")
 
         st.session_state['doc_info'] = {
             "to": to_field_val, 
-            "attn": ai_data.get("attn_name", ""), 
+            "attn": attn_field_val, 
             "project_title": ai_data.get("project_title", ""),
             "validity": ai_data.get("validity", ""), 
             "flag_class": ai_data.get("flag_class", ""), 
             "our_ref": our_ref_val,
             "date": ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")), 
-            "pic": st.session_state.get('user_email', ''), # 담당자는 당사 작성자로 자동 세팅
+            "pic": pic_field_val, 
             "your_ref": your_ref_val, 
             "ship": ai_data.get("ship_name", ""), 
             "payment_due": ai_data.get("payment_due", ""),
