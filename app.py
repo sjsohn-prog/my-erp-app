@@ -86,6 +86,26 @@ custom_css = """
     .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
     
+    /* ⭐ AI 문서 분석 Expander 화려한 형광/네온 글로우 스타일링 */
+    div[data-testid="stExpander"] {
+        border: 2px solid #00F0FF !important;
+        border-radius: 12px !important;
+        background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(29, 78, 216, 0.12) 100%) !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.35) !important;
+        margin-bottom: 20px !important;
+        transition: all 0.3s ease;
+    }
+    div[data-testid="stExpander"]:hover {
+        box-shadow: 0 0 22px rgba(0, 240, 255, 0.6) !important;
+        border-color: #38BDF8 !important;
+    }
+    div[data-testid="stExpander"] summary p {
+        font-size: 1.1rem !important;
+        font-weight: 800 !important;
+        color: #00F0FF !important;
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
+    }
+
     /* 일반 버튼 및 구글 로그인 버튼 전용 스타일 */
     .stButton > button, .google-btn { 
         display: inline-flex !important;
@@ -100,7 +120,7 @@ custom_css = """
         border-radius: 8px !important; 
         font-size: 0.95rem !important; 
         text-decoration: none !important;
-        box-sizing: border-border-box !important;
+        box-sizing: border-box !important;
         height: 42px !important;
         margin-bottom: 12px !important;
     }
@@ -148,7 +168,7 @@ if "code" in query_params and not st.session_state['authenticated']:
             st.query_params.clear()
             st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 테스트 로그인 버튼과 완전히 똑같은 규격/디자인의 구글 로그인 버튼
+# 로그인 화면
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -625,7 +645,8 @@ if menu == "서류 통합 생성":
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
-        with st.expander("🤖 AI 문서 분석", expanded=False):
+        # ⭐ 화려한 형광/네온 테두리와 안내 문구가 적용된 AI 분석 아코디언
+        with st.expander("⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽", expanded=False):
             ai_mode_choice = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice else "flash"
             uploaded_doc = st.file_uploader("문서 업로드 (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
