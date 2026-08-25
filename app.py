@@ -197,7 +197,6 @@ if 'doc_items' not in st.session_state:
         "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""
     }])
 
-# ⭐ 이중 안전 PDF 생성 엔진 (Playwright 오류 발생 시 xhtml2pdf 백업 자동 실행)
 def generate_pdf(template_name, context):
     logo_path = os.path.abspath("logo.png")
     context["logo_base64"] = base64.b64encode(open(logo_path, "rb").read()).decode('utf-8') if os.path.exists(logo_path) else None
@@ -210,7 +209,6 @@ def generate_pdf(template_name, context):
         except Exception:
             html_out = f"<h1>{context.get('doc_title','DOCUMENT')}</h1><pre>{json.dumps(context, indent=2, ensure_ascii=False)}</pre>"
     
-    # 1차: Playwright 시도
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -233,7 +231,6 @@ def generate_pdf(template_name, context):
             browser.close()
             return pdf_bytes
     except Exception:
-        # 2차 폴백: xhtml2pdf 경량 인메모리 변환 엔진
         try:
             from xhtml2pdf import pisa
             pdf_buffer = io.BytesIO()
@@ -242,8 +239,20 @@ def generate_pdf(template_name, context):
         except Exception:
             return html_out.encode('utf-8')
 
+# ⭐ 크롬 차단 완전 우회: PDF 페이지를 고화질 이미지로 안전 렌더링
 def show_pdf_preview(pdf_bytes):
-    st.markdown(f'<iframe src="data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode("utf-8")}" width="100%" height="800px" style="border-radius:12px; border:2px solid #0284C7;"></iframe>', unsafe_allow_html=True)
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        st.markdown("#### 📄 생성된 PDF 문서 미리보기")
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(dpi=150)
+            img_bytes = pix.tobytes("png")
+            st.image(img_bytes, caption=f"Page {i+1}", use_container_width=True)
+    except Exception:
+        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        pdf_display = f'<object data="data:application/pdf;base64,{b64_pdf}" type="application/pdf" width="100%" height="800px"><p>브라우저 환경으로 인해 미리보기를 표시할 수 없습니다. 위의 [💾 PDF 문서 다운로드] 버튼을 이용해주세요.</p></object>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
 
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
@@ -784,7 +793,7 @@ elif menu == "마스터 DB 관리":
             updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
             updated_db.to_csv(DB_FILE, index=False)
             del st.session_state['temp_db_upload']
-            st.success(f"성공적으로 마스터 DB에 통합 저장되었습니다! (총 {len(updated_db)}개 자재 저장됨)")
+            st.success(f"성공적으로 마스터 DB에 최종 저장되었습니다! (총 {len(updated_db)}개 자재 저장됨)")
             st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
