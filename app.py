@@ -40,39 +40,36 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. 구글 OAuth 로그인 처리 로직
+# 0-1. 구글 OAuth 로그인 처리 로직 (중복 호출 방지 교정)
 # ==========================================
-def get_google_auth_url():
-    params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "offline",
-        "prompt": "select_account"
-    }
-    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+if 'processed_code' not in st.session_state:
+    st.session_state['processed_code'] = None
 
-def get_google_user_info(code):
-    token_url = "https://oauth2.googleapis.com/token"
-    data = urllib.parse.urlencode({
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "grant_type": "authorization_code"
-    }).encode('utf-8')
+query_params = st.query_params
+if "code" in query_params and not st.session_state['authenticated']:
+    auth_code = query_params["code"]
     
-    req = urllib.request.Request(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(req) as response:
-        token_data = json.loads(response.read().decode('utf-8'))
-        
-    access_token = token_data.get("access_token")
-    userinfo_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={access_token}"
-    req_user = urllib.request.Request(userinfo_url)
-    with urllib.request.urlopen(req_user) as response_user:
-        return json.loads(response_user.read().decode('utf-8'))
-
+    # 이미 구글에 전송했던 코드라면 구글을 다시 호출하지 않고 URL만 즉시 청소
+    if st.session_state['processed_code'] == auth_code:
+        st.query_params.clear()
+    else:
+        st.session_state['processed_code'] = auth_code
+        try:
+            user_info = get_google_user_info(auth_code)
+            email = user_info.get("email", "")
+            
+            if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
+                st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
+                st.query_params.clear()
+            else:
+                st.session_state['authenticated'] = True
+                st.session_state['user_email'] = email
+                st.query_params.clear()
+                st.rerun()
+        except Exception as e:
+            st.query_params.clear()  # 실패하더라도 재시도를 위해 URL 파라미터 삭제
+            st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
+            
 # ==========================================
 # 1. 페이지 설정 & CSS
 # ==========================================
