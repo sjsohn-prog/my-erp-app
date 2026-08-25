@@ -28,7 +28,6 @@ CLASS_OPTIONS = [
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
 ]
 
-# 구글 OAuth 설정 불러오기
 def get_secret(key, default=""):
     try:
         if key in st.secrets: return st.secrets[key]
@@ -93,18 +92,18 @@ custom_css = """
     .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
-    .login-box { max-width: 450px; margin: 80px auto; padding: 30px; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 16px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
-    .google-btn { display: inline-block; background-color: #4285F4; color: white !important; font-weight: bold; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 1rem; margin-top: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    
+    /* 깔끔한 구글 로그인 버튼 전용 스타일 */
+    .google-btn-wrapper { text-align: center; margin-top: 15px; }
+    .google-btn { display: inline-block; width: 100%; background-color: #4285F4; color: white !important; font-weight: bold; padding: 12px; border-radius: 8px; text-decoration: none; text-align: center; font-size: 0.95rem; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 인증 상태 체크 및 콜백 처리
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
     st.session_state['user_email'] = ""
 
-# 구글 OAuth 인증 코드 수신 처리
 query_params = st.query_params
 if "code" in query_params and not st.session_state['authenticated']:
     auth_code = query_params["code"]
@@ -121,25 +120,30 @@ if "code" in query_params and not st.session_state['authenticated']:
     except Exception as e:
         st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# 인증 안 된 경우 로그인 화면 표시
+# ⭐ 깔끔한 중앙 정렬 로그인 UI (유령 입력창 완전히 제거)
 if not st.session_state['authenticated']:
-    st.markdown('<div class="login-box">', unsafe_allow_html=True)
-    st.markdown("<h2>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
-    st.markdown("<p>사내 임직원 전용 서류 관리 시스템입니다.<br>구글 계정으로 로그인해 주세요.</p>", unsafe_allow_html=True)
+    st.write("")
+    st.write("")
+    _, center_col, _ = st.columns([1, 1.8, 1])
     
-    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-        auth_url = get_google_auth_url()
-        st.markdown(f'<a href="{auth_url}" class="google-btn">🔑 Google 계정으로 로그인</a>', unsafe_allow_html=True)
-    else:
-        st.warning("⚠️ 구글 OAuth 설정이 감지되지 않았습니다. (Secrets 미설정)")
-        st.info("테스트용 임시 진입 모드를 사용합니다.")
-        test_email = st.text_input("사내 이메일 입력", value=f"user@{ALLOWED_DOMAIN}")
-        if st.button("🚀 로그인 진입"):
-            st.session_state['authenticated'] = True
-            st.session_state['user_email'] = test_email
-            st.rerun()
+    with center_col:
+        with st.container():
+            st.markdown('<div class="erp-card" style="text-align: center; padding: 30px 24px;">', unsafe_allow_html=True)
+            st.markdown("<h2>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.9rem; color: #94A3B8; margin-bottom: 20px;'>사내 임직원 전용 서류 관리 시스템입니다.<br>구글 계정으로 로그인해 주세요.</p>", unsafe_allow_html=True)
             
-    st.markdown('</div>', unsafe_allow_html=True)
+            if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+                auth_url = get_google_auth_url()
+                st.markdown(f'<div class="google-btn-wrapper"><a href="{auth_url}" class="google-btn">🔑 Google 계정으로 로그인</a></div>', unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ 구글 Client ID가 비어있습니다. (Secrets 설정 필요)")
+                st.info("임시 테스트 모드로 진입하실 수 있습니다.")
+                test_email = st.text_input("사내 이메일 입력", value=f"user@{ALLOWED_DOMAIN}")
+                if st.button("🚀 임시 로그인 진입"):
+                    st.session_state['authenticated'] = True
+                    st.session_state['user_email'] = test_email
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # ==========================================
@@ -251,7 +255,6 @@ HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
 
-# ⭐ 'None' 및 'nan' 문자열 완벽 제거
 def clean_df(df):
     if df is None or df.empty: return df
     df = df.copy().fillna("")
@@ -595,7 +598,6 @@ if menu == "서류 통합 생성":
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
 
-    # ⭐ 좌/우 5:5 균등 비율 배치 (테이블 시선 확보)
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
@@ -652,11 +654,9 @@ if menu == "서류 통합 생성":
 
         st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
         
-        # 빈 선택 옵션("")을 첫 번째 요소로 제공하여 'None' 노출 원천 차단
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
-        # ⭐ 초슬림 픽셀 핏 컬럼 폭 설정 (가로 잘림 및 스크롤바 방지)
         column_config = {
             "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=75),
             "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=110),
