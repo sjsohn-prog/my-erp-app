@@ -20,12 +20,17 @@ ADMIN_PASSWORD = "admin1234"
 DEFAULT_GEMINI_KEY = ""
 
 FLAG_OPTIONS = ["선택 안함", "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
-CLASS_OPTIONS = ["선택 안함", "KR", "NK", "LR", "DNV", "ABS", "BV", "RINA", "IRS", "CCS", "KR & NK", "DNV & LR"]
+
+# ⭐ 중복 없이 완벽히 정렬된 선급(Class) 드롭다운 목록
+CLASS_OPTIONS = [
+    "선택 안함", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
+    "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
+]
 
 # ==========================================
 # 1. 페이지 설정 & CSS
 # ==========================================
-st.set_page_config(page_title="ONESOLUTION Enterprise ERP", layout="wide", page_icon="🚢")
+st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
 custom_css = """
 <style>
@@ -46,7 +51,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (인쇄 여백 최소화 5mm)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -54,13 +59,13 @@ INLINE_HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <style>
-    @page { size: A4; margin: 10mm 10mm; }
+    @page { size: A4; margin: 5mm 5mm; }
     body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
-    .title { text-align: center; font-size: 20pt; font-weight: bold; text-decoration: underline; margin-bottom: 16px; text-transform: uppercase; }
+    .title { text-align: center; font-size: 20pt; font-weight: bold; text-decoration: underline; margin-bottom: 14px; text-transform: uppercase; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
     th, td { border: 1.5px solid #000; padding: 4px 6px; vertical-align: middle; }
-    .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
-    .hdr-value { width: 34%; font-size: 8.5pt; }
+    .hdr-label { width: 15%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
+    .hdr-value { width: 35%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 4px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     .col-no { width: 5%; text-align: center; }
@@ -73,7 +78,7 @@ INLINE_HTML_TEMPLATE = """
 </head>
 <body>
     {% if logo_base64 %}
-    <div style="text-align: left; margin-bottom: 12px;">
+    <div style="text-align: left; margin-bottom: 10px;">
         <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 55px;" />
     </div>
     {% endif %}
@@ -300,7 +305,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 4. AI 파싱 엔진 (품목 정확도 및 파싱 완벽 복구)
+# 4. AI 파싱 엔진
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
@@ -431,9 +436,9 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 5. UI 및 사이드바
+# 5. UI 및 사이드바 (ONE - ERP 로 명칭 변경)
 # ==========================================
-st.sidebar.title("🚢 ONESOLUTION ERP")
+st.sidebar.title("🚢 ONE - ERP")
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by WeasyPrint & Gemini</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
@@ -444,7 +449,7 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI 작업 오류: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (실시간 PDF 미리보기 & 슬림 헤더)
+# 6. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox("📋 서류 유형 선택", ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
@@ -489,7 +494,6 @@ if menu == "서류 통합 생성":
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
 
-    # ⭐ 실시간 미리보기 분할 레이아웃 (좌측 입력 4 : 우측 PDF 미리보기 6)
     left_col, right_col = st.columns([4, 6])
 
     with left_col:
@@ -509,9 +513,8 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-title">📌 {doc_type} 헤더 입력 (슬림 배치)</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">📌 {doc_type} 헤더 입력</div>', unsafe_allow_html=True)
         
-        # ⭐ 헤더 입력을 1열 슬림 형태로 수직 배치
         sel_to = st.selectbox("To (수신처 선택)", options=[""] + history["to_list"])
         to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
         
@@ -599,7 +602,6 @@ if menu == "서류 통합 생성":
             st.success("🎉 서류 관리대장 및 마스터 DB 등록 완료")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ⭐ 우측 실시간 PDF 미리보기 영역
     with right_col:
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">⚡ 실시간 PDF 문서 미리보기</div>', unsafe_allow_html=True)
@@ -612,14 +614,10 @@ if menu == "서류 통합 생성":
             "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
         }
         
-        # 실시간 PDF 생성
         realtime_pdf_bytes = generate_pdf(preview_ctx)
-        
-        # 다운로드 버튼
         file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
         st.download_button("💾 완성된 PDF 다운로드", realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
         
-        # 고화질 미리보기 렌더링
         pdf_imgs = render_pdf_images(realtime_pdf_bytes)
         if pdf_imgs:
             for i, img_b in enumerate(pdf_imgs):
