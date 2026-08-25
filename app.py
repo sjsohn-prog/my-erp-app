@@ -473,7 +473,6 @@ if menu == "서류 통합 생성":
             for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
                 if req_col not in items_df.columns: items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else (1 if req_col == "Qty" else 0.0)
 
-            # DB 순서에 맞춘 UI 열 순서 정렬
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
             for idx, row in items_df.iterrows():
@@ -533,7 +532,6 @@ if menu == "서류 통합 생성":
         sel_ship = st.selectbox("Ship's Name", options=[""] + history["ships"])
         ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
 
-        # Flag / Class 선택
         col_fc1, col_fc2 = st.columns(2)
         with col_fc1: sel_flag = st.selectbox("Flag", FLAG_OPTIONS)
         with col_fc2: sel_class = st.selectbox("Class", CLASS_OPTIONS)
@@ -552,24 +550,22 @@ if menu == "서류 통합 생성":
 
         st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
         
-        # PartNo 및 ItemName 드롭다운 목록 추출
         part_no_list = [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else []
         item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
 
-        # ⭐ DB 구조에 맞춘 UI 열 설정 (PartNo -> ItemName -> Description -> Qty -> UnitPrice -> Amount -> Remarks)
+        # ⭐ 각 열의 가로폭을 픽셀(px) 단위로 타이트하게 고정 (더블클릭 Auto-fit 효과)
         column_config = {
-            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width="small") if part_no_list else st.column_config.TextColumn("PartNo", width="small"),
-            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width="large"),
-            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
-            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
-            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
-            "Remarks": st.column_config.TextColumn("Remarks", width="medium"),
+            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=95) if part_no_list else st.column_config.TextColumn("PartNo", width=95),
+            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=135) if item_name_list else st.column_config.TextColumn("Item Name", width=135),
+            "Description": st.column_config.TextColumn("Description", width=200),
+            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1, width=55),
+            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=85),
+            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=95),
+            "Remarks": st.column_config.TextColumn("Remarks", width=105),
         }
 
         df_current = clean_df(st.session_state['doc_items'].copy())
         
-        # 열 순서 보장
         cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
         for c in cols_order:
             if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
@@ -581,7 +577,7 @@ if menu == "서류 통합 생성":
 
         edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
-        # ⭐ PartNo / ItemName 양방향 자동 연동 로직
+        # PartNo / ItemName 양방향 자동 연동
         for i, row in edited_df.iterrows():
             pno = clean_str(row.get('PartNo'))
             iname = clean_str(row.get('ItemName'))
@@ -718,7 +714,6 @@ elif menu == "마스터 DB 관리":
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    # ⭐ 발행 이력 조회 메뉴 에러(NameError) 수정 완료
     files = [f for f in os.listdir("output") if f.endswith('.pdf')]
     if files:
         selected_file = st.selectbox("문서 선택", files)
