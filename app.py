@@ -92,7 +92,6 @@ HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
 
-# Playwright 설치 보장 함수
 @st.cache_resource
 def install_playwright_browser():
     try:
@@ -195,15 +194,19 @@ if 'doc_info' not in st.session_state:
 
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{
-        "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
+        "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""
     }])
 
-# ⭐ 수정된 PDF 생성 함수 (클라우드 리눅스 컨테이너 안전 옵션 추가)
+# ⭐ 충돌 방지 완전 개선된 PDF 생성 함수 (인메모리 랜더링 & 메모리 샌드박스 안정화)
 def generate_pdf(template_name, context):
     logo_path = os.path.abspath("logo.png")
     context["logo_base64"] = base64.b64encode(open(logo_path, "rb").read()).decode('utf-8') if os.path.exists(logo_path) else None
-    html_out = Environment(loader=FileSystemLoader("templates")).get_template(template_name).render(context)
-    with open("temp.html", "w", encoding="utf-8") as f: f.write(html_out)
+    
+    # 템플릿 파일이 없으면 안전 인라인 폴백 지원
+    try:
+        html_out = Environment(loader=FileSystemLoader("templates")).get_template(template_name).render(context)
+    except Exception:
+        html_out = Environment(loader=FileSystemLoader(".")).get_template(template_name).render(context)
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -213,12 +216,17 @@ def generate_pdf(template_name, context):
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--no-zygote'
+                '--no-zygote',
+                '--single-process'
             ]
         )
         page = browser.new_page()
-        page.goto(f"file://{os.path.abspath('temp.html')}")
-        pdf_bytes = page.pdf(format="A4", print_background=True, margin={"top":"10mm","bottom":"10mm","left":"10mm","right":"10mm"})
+        page.set_content(html_out, wait_until="load")
+        pdf_bytes = page.pdf(
+            format="A4", 
+            print_background=True, 
+            margin={"top":"10mm","bottom":"10mm","left":"10mm","right":"10mm"}
+        )
         browser.close()
     return pdf_bytes
 
@@ -300,6 +308,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         - "Description": Detailed description (Type, Model, Specs)
         - "Qty": Quantity
         - "UnitPrice": Price per unit
+        - "Amount": Total amount for item (Qty * UnitPrice or explicitly stated)
         - "Remarks": Inline remarks
         
         Extract details into valid JSON:
@@ -315,7 +324,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
             "your_ref": "Your Ref. No.",
             "ship_name": "Ship Name",
             "currency": "KRW/USD/EUR",
-            "items": [{{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""}}]
+            "items": [{{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}}]
         }}
         Return ONLY raw JSON.
         """
@@ -414,7 +423,7 @@ if menu == "서류 통합 생성":
                 "currency": "KRW", "bottom_remarks": ""
             }
             st.session_state['doc_items'] = pd.DataFrame([{
-                "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
+                "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""
             }])
             if 'last_pdf' in st.session_state: del st.session_state['last_pdf']
             if 'last_file' in st.session_state: del st.session_state['last_file']
@@ -446,9 +455,9 @@ if menu == "서류 통합 생성":
         
         if not items_df.empty:
             items_df["No"] = range(1, len(items_df) + 1)
-            for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Remarks"]:
+            for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
                 if req_col not in items_df.columns:
-                    items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice"] else (1 if req_col == "Qty" else 0.0)
+                    items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else (1 if req_col == "Qty" else 0.0)
 
             for idx, row in items_df.iterrows():
                 pno = str(row.get('PartNo', ''))
@@ -467,7 +476,10 @@ if menu == "서류 통합 생성":
                     if not pno: items_df.at[idx, 'PartNo'] = str(m.get('PartNo', ''))
                     if not iname: items_df.at[idx, 'ItemName'] = str(m.get('ItemName', ''))
                     if not desc: items_df.at[idx, 'Description'] = str(m.get('Description', ''))
-            
+                
+                if float(row.get('Amount', 0.0)) == 0.0:
+                    items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
+
             st.session_state['doc_items'] = items_df
 
         st.session_state['bg_task']['status'] = 'idle'
@@ -522,7 +534,7 @@ if menu == "서류 통합 생성":
         action = st.text_area("B. Action Taken")
         result = st.text_area("C. Result")
     
-    st.markdown('<div class="section-title" style="margin-top:20px;">📦 품목 상세 내역 (Price 콤마 및 멀티라인 자동적용)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title" style="margin-top:20px;">📦 품목 상세 내역 (Amount 수기 수정 가능)</div>', unsafe_allow_html=True)
     
     if not db.empty:
         with st.expander("🔍 과거 등록 자재 DB 검색 및 1-Click 스펙 매칭 도우미", expanded=False):
@@ -548,7 +560,10 @@ if menu == "서류 통합 생성":
                                 st.session_state['doc_items'].at[r_idx, 'PartNo'] = str(chosen_row.get('PartNo', ''))
                                 st.session_state['doc_items'].at[r_idx, 'ItemName'] = str(chosen_row.get('ItemName', ''))
                                 st.session_state['doc_items'].at[r_idx, 'Description'] = str(chosen_row.get('Description', ''))
-                                st.session_state['doc_items'].at[r_idx, 'UnitPrice'] = float(chosen_row.get('UnitPrice', 0.0))
+                                u_price = float(chosen_row.get('UnitPrice', 0.0))
+                                qty_val = float(st.session_state['doc_items'].at[r_idx, 'Qty']) if 'Qty' in st.session_state['doc_items'].columns else 1.0
+                                st.session_state['doc_items'].at[r_idx, 'UnitPrice'] = u_price
+                                st.session_state['doc_items'].at[r_idx, 'Amount'] = u_price * qty_val
                                 if 'Remarks' in st.session_state['doc_items'].columns:
                                     st.session_state['doc_items'].at[r_idx, 'Remarks'] = str(chosen_row.get('Remarks', ''))
                                 st.success(f"No.{target_row_num} 행에 {chosen_row.get('ItemName', chosen_row.get('Description'))} 스펙이 정확히 반영되었습니다!")
@@ -562,14 +577,19 @@ if menu == "서류 통합 생성":
         "Description": st.column_config.TextColumn("Description (Model, Type 등 상세규격)", width="large"),
         "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
         "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
+        "Amount": st.column_config.NumberColumn("Amount (Net Price - 수기 수정 가능)", format="%,d", min_value=0),
         "Remarks": st.column_config.TextColumn("Remarks (비고)", width="medium"),
     }
 
     df_current = st.session_state['doc_items'].copy()
-    for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Remarks"]:
+    for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
         if c not in df_current.columns:
-            df_current[c] = "" if c not in ["Qty", "UnitPrice"] else (1 if c == "Qty" else 0.0)
-            
+            df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
+
+    for i, row in df_current.iterrows():
+        if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
+            df_current.at[i, 'Amount'] = float(row.get('Qty', 1)) * float(row.get('UnitPrice', 0.0))
+
     edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
 
     for i, row in edited_df.iterrows():
@@ -580,11 +600,13 @@ if menu == "서류 통합 생성":
             if not row.get('Description') or pd.isna(row.get('Description')):
                 edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
             if row.get('UnitPrice', 0.0) == 0.0 or pd.isna(row.get('UnitPrice')):
-                edited_df.at[i, 'UnitPrice'] = float(match_row.get('UnitPrice', 0.0))
+                u_p = float(match_row.get('UnitPrice', 0.0))
+                edited_df.at[i, 'UnitPrice'] = u_p
+                if edited_df.at[i, 'Amount'] == 0.0:
+                    edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
 
-    if "UnitPrice" in edited_df.columns and "Qty" in edited_df.columns:
-        edited_df["Amount"] = pd.to_numeric(edited_df["Qty"]).fillna(0) * pd.to_numeric(edited_df["UnitPrice"]).fillna(0)
-        total_val = edited_df["Amount"].sum()
+    if "Amount" in edited_df.columns:
+        total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
         disp_curr = currency if currency else "KRW"
         st.markdown(f'<div class="total-badge">Total Amount: {disp_curr} {total_val:,.2f}</div>', unsafe_allow_html=True)
     else:
@@ -780,7 +802,7 @@ elif menu == "마스터 DB 관리":
                     "currency": "KRW", "bottom_remarks": ""
                 }
                 st.session_state['doc_items'] = pd.DataFrame([{
-                    "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
+                    "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""
                 }])
                 st.success("초기화되었습니다.")
                 st.rerun()
