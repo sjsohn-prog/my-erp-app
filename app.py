@@ -47,12 +47,12 @@ def get_google_auth_url():
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
-        "scope": "openid email profile",
+        "scope": "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
         "access_type": "offline",
         "prompt": "select_account"
     }
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
-
+    
 def get_google_user_info(code):
     token_url = "https://oauth2.googleapis.com/token"
     data = urllib.parse.urlencode({
