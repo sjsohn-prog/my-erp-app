@@ -1,8 +1,7 @@
 streamlit
 pandas
 jinja2
-playwright
 google-generativeai
 pillow
-xhtml2pdf
-pymupdf
+weasyprint
+PyMuPDF
