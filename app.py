@@ -16,9 +16,10 @@ from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ==========================================
-# 0. 관리자 보안, API 키 및 구글 OAuth 설정
+# 0. 보안 비밀번호 설정 (관리자: admin0915 / DB저장: 0915)
 # ==========================================
-ADMIN_PASSWORD = "admin1234"
+ADMIN_PASSWORD = "admin0915"
+SAVE_PASSWORD = "0915"
 DEFAULT_GEMINI_KEY = ""
 
 FLAG_OPTIONS = ["선택 안함", "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
@@ -86,7 +87,7 @@ custom_css = """
     .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
     
-    /* ⭐ AI 문서 분석 Expander 화려한 형광/네온 글로우 스타일링 */
+    /* AI 문서 분석 Expander 네온 스타일링 */
     div[data-testid="stExpander"] {
         border: 2px solid #00F0FF !important;
         border-radius: 12px !important;
@@ -389,7 +390,6 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ⭐ 작성자 정보(CreatedBy) 기록 연동
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     new_entry = pd.DataFrame([{
@@ -756,13 +756,13 @@ if menu == "서류 통합 생성":
         st.markdown('<div class="section-title" style="margin-top:16px;">📝 Remarks & Deviations</div>', unsafe_allow_html=True)
         bottom_remarks = st.text_area("하단 비고란", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80)
         
-        # ⭐ 1. 관리자 비밀번호 입력 필드 및 등록 로직
+        # ⭐ DB 및 대장 저장 비밀번호 (0915 적용)
         st.markdown('<div class="section-title" style="margin-top:16px;">📌 관리대장 및 DB 등록</div>', unsafe_allow_html=True)
-        reg_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="doc_reg_pwd")
+        reg_pwd = st.text_input("🔒 비밀번호 (0915)", type="password", key="doc_reg_pwd")
         
         if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
-            if reg_pwd != ADMIN_PASSWORD:
-                st.error("❌ 비밀번호가 올바르지 않습니다. (비밀번호: admin1234)")
+            if reg_pwd != SAVE_PASSWORD:
+                st.error("❌ 비밀번호가 올바르지 않습니다.")
             else:
                 current_user = st.session_state.get('user_email', 'Unknown')
                 st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
@@ -771,7 +771,6 @@ if menu == "서류 통합 생성":
                 db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
                 safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
                 
-                # 작성자(current_user) 정보 포함하여 대장 저장
                 save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
                 save_history(ship_name, to_name, attn_name)
                 st.success(f"🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {current_user})")
@@ -802,7 +801,7 @@ if menu == "서류 통합 생성":
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장 (고성능 필터링 및 작성자 검색 기능 복구)
+# 7. 서류 관리대장
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
@@ -814,7 +813,6 @@ elif menu == "서류 관리대장":
         if "CreatedBy" not in ledger_df.columns:
             ledger_df["CreatedBy"] = "-"
 
-        # ⭐ 대장 다중 필터 및 검색 바
         f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 3])
         with f_col1:
             doc_types = ["전체"] + sorted([d for d in ledger_df["DocType"].unique() if d])
@@ -850,7 +848,7 @@ elif menu == "서류 관리대장":
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 마스터 DB 관리 (비밀번호 보호 기능 적용)
+# 8. 마스터 DB 관리 (저장: 0915 / 초기화: admin0915)
 # ==========================================
 elif menu == "마스터 DB 관리":
     db = clean_df(pd.read_csv(DB_FILE))
@@ -884,10 +882,10 @@ elif menu == "마스터 DB 관리":
 
     if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
         st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
-        # ⭐ 비밀번호 보호 적용
-        db_parse_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="db_parse_pwd")
+        # ⭐ 저장 비밀번호 0915 적용
+        db_parse_pwd = st.text_input("🔒 저장 비밀번호", type="password", key="db_parse_pwd")
         if st.button("✅ DB 최종 저장", disabled=is_running):
-            if db_parse_pwd != ADMIN_PASSWORD:
+            if db_parse_pwd != SAVE_PASSWORD:
                 st.error("❌ 비밀번호가 올바르지 않습니다.")
             else:
                 updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
@@ -901,10 +899,10 @@ elif menu == "마스터 DB 관리":
     st.markdown('<div class="section-title">📊 DB 관리</div>', unsafe_allow_html=True)
     edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
     
-    # ⭐ 비밀번호 보호 적용
-    db_edit_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="db_edit_pwd")
+    # ⭐ 저장 비밀번호 0915 적용
+    db_edit_pwd = st.text_input("🔒 저장 비밀번호", type="password", key="db_edit_pwd")
     if st.button("💾 DB 수정사항 저장"):
-        if db_edit_pwd != ADMIN_PASSWORD:
+        if db_edit_pwd != SAVE_PASSWORD:
             st.error("❌ 비밀번호가 올바르지 않습니다.")
         else:
             edited_db.to_csv(DB_FILE, index=False)
@@ -913,7 +911,8 @@ elif menu == "마스터 DB 관리":
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
     with st.expander("🚨 DB 초기화"):
-        pwd_input = st.text_input("비밀번호 입력", type="password", key="reset_pwd")
+        # ⭐ 전체 초기화는 관리자 비밀번호 admin0915 요구
+        pwd_input = st.text_input("관리자 비밀번호 입력", type="password", key="reset_pwd")
         if st.button("🔥 초기화") and pwd_input == ADMIN_PASSWORD:
             pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
             st.success("초기화됨")
