@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page { size: A4; margin: 10mm; }
+    body { font-family: Arial, sans-serif; font-size: 11px; line-height: 1.2; }
+    .company { font-size: 15px; font-weight: bold; }
+    .title { font-size: 18px; font-weight: bold; text-align: center; margin: 10px 0; background-color: #f0f0f0; padding: 5px; border: 1px solid #000; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th, td { border: 1px solid #000; padding: 5px; }
+    .bg { background-color: #f0f0f0; font-weight: bold; }
+</style>
+</head>
+<body>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <div class="company">One Solution Co., Ltd. (주)원솔루션</div>
+            <div style="font-size:9px;">Address: Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733<br>TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr</div>
+        </div>
+        {% if logo_base64 %}<img src="data:image/png;base64,{{ logo_base64 }}" style="height:45px;">{% endif %}
+    </div>
+
+    <div class="title">인 수 증 (DELIVERY NOTE)</div>
+
+    <table>
+        <tr>
+            <td class="bg" width="15%">수신 (To)</td><td width="35%">{{ to_name }}</td>
+            <td class="bg" width="15%">발행번호(Ref)</td><td width="35%">{{ ref_no }}</td>
+        </tr>
+        <tr>
+            <td class="bg">참조 (c/o)</td><td>{{ co_name }}</td>
+            <td class="bg">발행일자(Date)</td><td>{{ date_str }}</td>
+        </tr>
+        <tr>
+            <td class="bg">제목 (Re)</td><td>{{ subject }}</td>
+            <td class="bg">발주번호(Order)</td><td>{{ order_no }}</td>
+        </tr>
+    </table>
+
+    <table style="margin-top:10px;">
+        <thead>
+            <tr class="bg">
+                <th width="8%">No.</th><th>내용 / Description (Model, Serial No..)</th><th width="12%">수량(Q'ty)</th><th width="20%">비고(Remarks)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr style="height:40px;">
+                <td style="text-align:center;">{{ item.No }}</td>
+                <td style="white-space:pre-line;">{{ item.Description }}</td>
+                <td style="text-align:center;">{{ item.Qty }}</td>
+                <td>{{ item.Remarks }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p style="font-size:10px; margin-top:15px;">상기와 같이 납품하고 인수증을 송부하오니 확인 서명후 FAX (051-715-1214)로 회송하여 주시기 바랍니다.<br>Please confirm the above goods have been correctly received, and return us one copy with your signature.</p>
+
+    <!-- 수기 서명란 영역 -->
+    <table style="margin-top:20px;">
+        <tr class="bg"><td width="50%">수령일 (Received date)</td><td width="50%">부서/직책(Dept./Position)</td></tr>
+        <tr style="height:35px;"><td></td><td></td></tr>
+        <tr class="bg"><td>수령자 (Received by)</td><td>서명 (Signature)</td></tr>
+        <tr style="height:35px;"><td></td><td></td></tr>
+    </table>
+</body>
+</html>

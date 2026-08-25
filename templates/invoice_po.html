@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page { size: A4; margin: 10mm; }
+    body { font-family: Arial, sans-serif; font-size: 11px; line-height: 1.2; }
+    .company { font-size: 16px; font-weight: bold; }
+    .title { font-size: 20px; font-weight: bold; text-align: center; margin: 10px 0; background: #eee; padding: 4px; border: 1px solid #000; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th, td { border: 1px solid #000; padding: 5px; }
+    .bg { background-color: #f0f0f0; font-weight: bold; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .bank-box { border: 1px solid #000; padding: 8px; font-size: 9.5px; line-height: 1.4; }
+</style>
+</head>
+<body>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <div class="company">One Solution Co., Ltd. (주)원솔루션</div>
+            <div style="font-size:9px;">Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733<br>TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr</div>
+        </div>
+        {% if logo_base64 %}<img src="data:image/png;base64,{{ logo_base64 }}" style="height:45px;">{% endif %}
+    </div>
+
+    <div class="title">{{ doc_title }}</div>
+
+    <table>
+        <tr>
+            <td class="bg" width="15%">TO</td><td width="35%">{{ to_name }}</td>
+            <td class="bg" width="15%">Our Ref. No.</td><td width="35%">{{ ref_no }}</td>
+        </tr>
+        <tr>
+            <td class="bg">ATTN</td><td>{{ attn }}</td>
+            <td class="bg">Date</td><td>{{ date_str }}</td>
+        </tr>
+        <tr>
+            <td class="bg">Ship's Name</td><td>{{ ship_name }}</td>
+            <td class="bg">Payment Due</td><td>{{ payment_due }}</td>
+        </tr>
+    </table>
+
+    <table>
+        <thead>
+            <tr class="bg">
+                <th width="8%">No.</th><th>Description (Model, Type, Serial No.)</th><th width="10%">Q'ty</th><th width="18%">Unit Price</th><th width="18%">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="center">{{ item.No }}</td>
+                <td style="white-space:pre-line;">{{ item.Description }}</td>
+                <td class="center">{{ item.Qty }}</td>
+                <td class="right">{{ "{:,.2f}".format(item.UnitPrice|float) }}</td>
+                <td class="right">{{ "{:,.2f}".format(item.Amount|float) }}</td>
+            </tr>
+            {% endfor %}
+            <tr>
+                <td colspan="4" class="right bg">Total Amount</td>
+                <td class="right bg">{{ currency }} {{ "{:,.2f}".format(total_amount|float) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div style="margin-top:15px; display:flex; justify-content:space-between; align-items:flex-end;">
+        <div class="bank-box" style="width:62%;">
+            <b>[Bank Account Information]</b><br>
+            * Name of Bank: KEB HANA Bank (CHORYANG Branch) | SWIFT Code: KOEXKRSE<br>
+            * [KRW] Account No.: 322-910016-39004<br>
+            * [USD/EUR/JPY/SGD] Account No.: 322-910008-03738<br>
+            * Beneficiary: One Solution Co., Ltd.<br>
+            <i>All the banking fees must be paid by remitter without any deduction.</i>
+        </div>
+        <div style="width:33%; text-align:center;">
+            <div style="height:50px;"></div>
+            ________________________________<br>
+            <b>One Solution Co., Ltd.</b>
+        </div>
+    </div>
+</body>
+</html>
