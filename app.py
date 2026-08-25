@@ -43,7 +43,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (절대 깨지지 않는 고정 양식)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -65,7 +65,7 @@ INLINE_HTML_TEMPLATE = """
     .col-qty { width: 10%; text-align: center; }
     .col-price { width: 20%; text-align: right; }
     .col-amt { width: 20%; text-align: right; }
-    .remarks-box { border: 2px solid #000; padding: 10px; min-height: 100px; margin-top: 10px; font-size: 10pt; }
+    .remarks-box { border: 2px solid #000; padding: 10px; min-height: 80px; margin-top: 10px; font-size: 10pt; }
 </style>
 </head>
 <body>
@@ -117,9 +117,9 @@ INLINE_HTML_TEMPLATE = """
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
                 <td class="col-desc">
-                    {% if item.ItemName %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
-                    {{ item.Description | replace('\n', '<br>') }}
-                    {% if item.Remarks %}<br><span style="font-size: 9pt; color: #555;"><em>{{ item.Remarks }}</em></span>{% endif %}
+                    {% if item.ItemName and item.ItemName.strip() %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
+                    {% if item.Description and item.Description.strip() %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
+                    {% if item.Remarks and item.Remarks.strip() %}<br><span style="font-size: 8.5pt; color: #444;"><em>{{ item.Remarks }}</em></span>{% endif %}
                 </td>
                 <td class="col-qty">{{ item.Qty }}</td>
                 <td class="col-price">{{ "{:,.0f}".format(item.UnitPrice) if item.UnitPrice else "" }}</td>
@@ -129,22 +129,31 @@ INLINE_HTML_TEMPLATE = """
         </tbody>
     </table>
 
+    {% if bottom_remarks and bottom_remarks.strip() %}
     <div class="remarks-box">
         <strong>[Remarks & Deviations]</strong><br>
         {{ bottom_remarks | replace('\n', '<br>') }}
     </div>
+    {% endif %}
 </body>
 </html>
 """
 
 # ==========================================
-# 3. 환경 초기화
+# 3. 환경 및 데이터 정제 도구
 # ==========================================
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
 HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
+
+def clean_df(df):
+    if df is None or df.empty: return df
+    df = df.fillna("")
+    for col in df.columns:
+        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>"], "")
+    return df
 
 if 'bg_task' not in st.session_state:
     st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
@@ -170,7 +179,7 @@ if os.path.exists(DB_FILE):
     if "Category" in db_init.columns and "PartNo" not in db_init.columns: db_init = db_init.rename(columns={"Category": "PartNo"})
     for req in ["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]:
         if req not in db_init.columns: db_init[req] = "" if req != "UnitPrice" else 0.0
-    db_init = db_init[["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]]
+    db_init = clean_df(db_init[["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]])
     db_init.to_csv(DB_FILE, index=False)
 else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
@@ -210,7 +219,8 @@ def safe_merge_db(existing_db, new_data_df):
     has_pno = combined['PartNo'].astype(str).str.strip() != ""
     has_item = combined['ItemName'].astype(str).str.strip() != ""
     has_desc = combined['Description'].astype(str).str.strip() != ""
-    return combined[has_pno | has_item | has_desc].drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
+    res = combined[has_pno | has_item | has_desc].drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
+    return clean_df(res)
 
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "currency": "KRW", "bottom_remarks": ""}
@@ -218,7 +228,6 @@ if 'doc_info' not in st.session_state:
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
-# ⭐ WeasyPrint 엔진 적용 (표 깨짐 원천 차단)
 def generate_pdf(context):
     from weasyprint import HTML
     logo_path = os.path.abspath("logo.png")
@@ -233,7 +242,6 @@ def generate_pdf(context):
     pdf_bytes = HTML(string=html_out).write_pdf()
     return pdf_bytes
 
-# ⭐ PyMuPDF(fitz)를 이용한 크롬 차단 100% 우회 이미지 미리보기
 def show_pdf_preview(pdf_bytes):
     try:
         import fitz
@@ -252,7 +260,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 4. AI 파싱 엔진
+# 4. AI 파싱 엔진 (100% 범용 구조 중심 프롬프트)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
@@ -295,44 +303,37 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         mode_label = "Thinking(사고)" if ai_mode == "thinking" else "Flash(고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
         
-        # ⭐ 복구된 완벽한 AI 데이터 구조 프롬프트
+        # ⭐ 100% 범용성(구조 중심) 추출 규칙 적용
         prompt = f"""
-        Extract document details to match the required fixed header fields and item list.
+        Extract document details into JSON format matching the fixed header fields and item list.
         
-        FIXED HEADER FIELDS:
-        1. "to_name": To (Client / Company Name)
-        2. "attn_name": Attention (Person / Dept)
-        3. "project_title": Project Title / Subject
-        4. "validity": Validity e.g. "By Aug 21, 2026"
-        5. "flag_class": Flag / Class e.g. "HONG KONG / NK"
-        6. "our_ref": Our Ref. No.
-        7. "date_str": Date (YYYY-MM-DD)
-        8. "pic": PIC (Person In Charge)
-        9. "your_ref": Your Ref. No.
-        10. "ship_name": Ship's Name
-        
-        ITEM LIST RULES:
-        - "PartNo": Part No
-        - "ItemName": Main item name
-        - "Description": Detailed description (Type, Model, Specs)
-        - "Qty": Quantity (Number)
-        - "UnitPrice": Price per unit (Number)
-        - "Amount": Total amount for item (Qty * UnitPrice) (Number)
-        - "Remarks": Inline remarks
-        
+        CRITICAL RULES FOR EXTRACTION (100% UNIVERSAL STRUCTURE):
+        1. STRICT SEPARATION OF METADATA VS. TABLE ITEMS:
+           - Clearly distinguish document-level metadata (text outside/above the item table) from the actual line items inside the table.
+           - ANY text appearing BEFORE the actual item list starts (e.g., vessel names, locations, general project titles, overarching notes) MUST be mapped to the appropriate FIXED HEADER FIELDS (like "ship_name", "project_title").
+           - NEVER merge document-level metadata into Item #1's "Description".
+           
+        2. ITEM NAME vs DESCRIPTION SEPARATION:
+           - "ItemName": Main product or service title.
+           - "Description": Specific model, serial no, or detailed specs.
+           - If an item only has one line of text, leave "ItemName" as "" and put the text in "Description".
+
+        3. ABSOLUTE NO "nan" OR "N/A":
+           - If a value is missing, return an empty string "". Do NOT write "nan", "NaN", or "N/A".
+
         Extract details into valid JSON EXACTLY matching this structure:
         {{
-            "to_name": "Company Name",
-            "attn_name": "Contact Person",
-            "project_title": "Project Title",
-            "validity": "Validity",
-            "flag_class": "Flag / Class",
-            "our_ref": "Our Ref. No.",
-            "date_str": "YYYY-MM-DD",
-            "pic": "PIC Name",
-            "your_ref": "Your Ref. No.",
-            "ship_name": "Ship Name",
-            "currency": "KRW/USD/EUR",
+            "to_name": "",
+            "attn_name": "",
+            "project_title": "",
+            "validity": "",
+            "flag_class": "",
+            "our_ref": "",
+            "date_str": "",
+            "pic": "",
+            "your_ref": "",
+            "ship_name": "",
+            "currency": "KRW",
             "items": [
                 {{
                     "PartNo": "", 
@@ -374,7 +375,7 @@ def run_bg_sheet_parse(task_state, api_key, excel_bytes, sheet_names, ai_mode):
         for col in ['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']:
             if col not in parsed_df.columns: parsed_df[col] = '' if col != 'UnitPrice' else 0.0
         parsed_df['UnitPrice'] = pd.to_numeric(parsed_df['UnitPrice'], errors='coerce').fillna(0.0)
-        task_state['result'] = parsed_df
+        task_state['result'] = clean_df(parsed_df)
         task_state['status'] = 'completed'
     except Exception as e:
         task_state['status'] = 'error'
@@ -415,7 +416,7 @@ if menu == "서류 통합 생성":
             if 'last_file' in st.session_state: del st.session_state['last_file']
             st.rerun()
 
-    db = pd.read_csv(DB_FILE)
+    db = clean_df(pd.read_csv(DB_FILE))
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
@@ -449,7 +450,7 @@ if menu == "서류 통합 생성":
                     if not desc: items_df.at[idx, 'Description'] = str(m.get('Description', ''))
                 if float(row.get('Amount', 0.0)) == 0.0:
                     items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
-            st.session_state['doc_items'] = items_df
+            st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
 
@@ -510,11 +511,13 @@ if menu == "서류 통합 생성":
                                 qty_val = float(st.session_state['doc_items'].at[r_idx, 'Qty']) if 'Qty' in st.session_state['doc_items'].columns else 1.0
                                 st.session_state['doc_items'].at[r_idx, 'UnitPrice'] = u_price
                                 st.session_state['doc_items'].at[r_idx, 'Amount'] = u_price * qty_val
+                                st.session_state['doc_items'] = clean_df(st.session_state['doc_items'])
                                 st.success("스펙이 성공적으로 반영되었습니다!")
                                 st.rerun()
 
-    item_name_list = db["ItemName"].dropna().unique().tolist() if not db.empty and "ItemName" in db.columns else []
+    item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
     column_config = {
+        "PartNo": st.column_config.TextColumn("PartNo", width="small"),
         "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
         "Description": st.column_config.TextColumn("Description", width="large"),
         "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
@@ -523,7 +526,7 @@ if menu == "서류 통합 생성":
         "Remarks": st.column_config.TextColumn("Remarks", width="medium"),
     }
 
-    df_current = st.session_state['doc_items'].copy()
+    df_current = clean_df(st.session_state['doc_items'].copy())
     for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
         if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
 
@@ -531,7 +534,7 @@ if menu == "서류 통합 생성":
         if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
             df_current.at[i, 'Amount'] = float(row.get('Qty', 1)) * float(row.get('UnitPrice', 0.0))
 
-    edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
+    edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
     for i, row in edited_df.iterrows():
         if pd.notna(row.get('ItemName')) and row['ItemName'] in db['ItemName'].values:
@@ -558,7 +561,7 @@ if menu == "서류 통합 생성":
     with col_act1:
         if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
             st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "currency": currency, "bottom_remarks": bottom_remarks}
-            st.session_state['doc_items'] = edited_df
+            st.session_state['doc_items'] = clean_df(edited_df)
             db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
             db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
             safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
@@ -569,14 +572,14 @@ if menu == "서류 통합 생성":
     with col_act2:
         if st.button(f"⚡ {doc_type} PDF 생성", type="primary", disabled=is_running):
             st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "currency": currency, "bottom_remarks": bottom_remarks}
-            st.session_state['doc_items'] = edited_df
+            st.session_state['doc_items'] = clean_df(edited_df)
             save_history(ship_name, to_name, attn_name)
 
             ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "currency": currency or "KRW",
-                "items": edited_df.to_dict("records"), "bottom_remarks": bottom_remarks
+                "items": clean_df(edited_df).to_dict("records"), "bottom_remarks": bottom_remarks
             }
             pdf = generate_pdf(ctx)
             file_n = f"{doc_type}_{our_ref or your_ref}.pdf"
@@ -596,16 +599,16 @@ elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
     if not ledger_df.empty:
-        st.dataframe(ledger_df, use_container_width=True)
+        st.dataframe(clean_df(ledger_df), use_container_width=True)
         st.download_button("📥 엑셀(CSV) 다운로드", ledger_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger.csv", mime="text/csv")
     else: st.info("데이터가 없습니다.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif menu == "마스터 DB 관리":
-    db = pd.read_csv(DB_FILE)
+    db = clean_df(pd.read_csv(DB_FILE))
     
     if task['status'] == 'completed' and task['type'] == 'db_parse':
-        st.session_state['temp_db_upload'] = task['result']
+        st.session_state['temp_db_upload'] = clean_df(task['result'])
         st.session_state['bg_task']['status'] = 'idle'
         st.success("🎉 시트 AI 파싱 완료")
 
@@ -643,7 +646,7 @@ elif menu == "마스터 DB 관리":
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 DB 관리</div>', unsafe_allow_html=True)
-    edited_db = st.data_editor(db, num_rows="dynamic", use_container_width=True)
+    edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
     if st.button("💾 DB 수정사항 저장"):
         edited_db.to_csv(DB_FILE, index=False)
         st.success("저장되었습니다.")
