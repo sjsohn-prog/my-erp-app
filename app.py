@@ -40,36 +40,39 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. 구글 OAuth 로그인 처리 로직 (중복 호출 방지 교정)
+# 0-1. 구글 OAuth 로그인 필수 함수 선언 (NameError 방지)
 # ==========================================
-if 'processed_code' not in st.session_state:
-    st.session_state['processed_code'] = None
+def get_google_auth_url():
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account"
+    }
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
 
-query_params = st.query_params
-if "code" in query_params and not st.session_state['authenticated']:
-    auth_code = query_params["code"]
+def get_google_user_info(code):
+    token_url = "https://oauth2.googleapis.com/token"
+    data = urllib.parse.urlencode({
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }).encode('utf-8')
     
-    # 이미 구글에 전송했던 코드라면 구글을 다시 호출하지 않고 URL만 즉시 청소
-    if st.session_state['processed_code'] == auth_code:
-        st.query_params.clear()
-    else:
-        st.session_state['processed_code'] = auth_code
-        try:
-            user_info = get_google_user_info(auth_code)
-            email = user_info.get("email", "")
-            
-            if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
-                st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
-                st.query_params.clear()
-            else:
-                st.session_state['authenticated'] = True
-                st.session_state['user_email'] = email
-                st.query_params.clear()
-                st.rerun()
-        except Exception as e:
-            st.query_params.clear()  # 실패하더라도 재시도를 위해 URL 파라미터 삭제
-            st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
-            
+    req = urllib.request.Request(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req) as response:
+        token_data = json.loads(response.read().decode('utf-8'))
+        
+    access_token = token_data.get("access_token")
+    userinfo_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={access_token}"
+    req_user = urllib.request.Request(userinfo_url)
+    with urllib.request.urlopen(req_user) as response_user:
+        return json.loads(response_user.read().decode('utf-8'))
+
 # ==========================================
 # 1. 페이지 설정 & CSS
 # ==========================================
@@ -97,23 +100,33 @@ if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
     st.session_state['user_email'] = ""
 
+if 'processed_code' not in st.session_state:
+    st.session_state['processed_code'] = None
+
+# ⭐ 일회성 구글 로그인 인증 코드 중복 처리 방지 로직 (403 방지)
 query_params = st.query_params
 if "code" in query_params and not st.session_state['authenticated']:
     auth_code = query_params["code"]
-    try:
-        user_info = get_google_user_info(auth_code)
-        email = user_info.get("email", "")
-        if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
-            st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
-        else:
-            st.session_state['authenticated'] = True
-            st.session_state['user_email'] = email
+    if st.session_state['processed_code'] == auth_code:
+        st.query_params.clear()
+    else:
+        st.session_state['processed_code'] = auth_code
+        try:
+            user_info = get_google_user_info(auth_code)
+            email = user_info.get("email", "")
+            if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
+                st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
+                st.query_params.clear()
+            else:
+                st.session_state['authenticated'] = True
+                st.session_state['user_email'] = email
+                st.query_params.clear()
+                st.rerun()
+        except Exception as e:
             st.query_params.clear()
-            st.rerun()
-    except Exception as e:
-        st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
+            st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 군더더기 없는 테스트 로그인 전용 UI
+# ⭐ 로그인 화면 & 테스트 로그인 버튼
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -549,7 +562,7 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-# ⭐ 1. Powered by Gemini 3.6 수정 완료
+# ⭐ Powered by Gemini 3.6 적용
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
@@ -665,7 +678,7 @@ if menu == "서류 통합 생성":
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
-        # ⭐ 2. ItemName 및 Description 컬럼 폭 핏하게 축소 설정
+        # ⭐ ItemName 및 Description 너비 축소
         column_config = {
             "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
             "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
