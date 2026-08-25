@@ -213,7 +213,6 @@ custom_css = """
     .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
     
-    /* AI 문서 분석 Expander 네온 스타일링 */
     div[data-testid="stExpander"] {
         border: 2px solid #00F0FF !important;
         border-radius: 12px !important;
@@ -261,7 +260,6 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 상단 우측 언어 토글 스위치 (KR | EN)
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed")
@@ -276,7 +274,6 @@ if 'authenticated' not in st.session_state:
 if 'processed_code' not in st.session_state:
     st.session_state['processed_code'] = None
 
-# OAuth 인증 중복 호출 방지 세션 로직
 query_params = st.query_params
 if "code" in query_params and not st.session_state['authenticated']:
     auth_code = query_params["code"]
@@ -299,7 +296,6 @@ if "code" in query_params and not st.session_state['authenticated']:
             st.query_params.clear()
             st.error(f"Google Auth Error: {e}")
 
-# 로그인 화면
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -322,7 +318,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (Noto Sans KR 적용)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -585,7 +581,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    # Gemini 3.6 Flash 모델 타겟팅 고정
     if mode == "thinking":
         candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash', 'gemini-1.5-flash']
     else:
@@ -607,6 +602,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
             continue
     raise Exception(f"AI 모델 호출 실패: {last_err}")
 
+# ⭐ AI 수발신 발행자/수신자 파싱 포함
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -617,25 +613,19 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         Extract document details into JSON format matching the fixed header fields and item list.
         
         CRITICAL RULES FOR EXTRACTION:
-        1. HEADER FIELDS EXTRACTION:
+        1. HEADER & ISSUER/RECIPIENT EXTRACTION:
+           - Extract "issuer_company": The company who ISSUED/SENT this document (e.g. Vendor, Client, or 1Solution).
+           - Extract "recipient_company": The company TO WHOM this document is addressed (e.g. "To" field).
            - Extract "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
-           - DO NOT mix document title lines or header vessel names into Item #1's Description!
 
-        2. ITEM TABLE EXTRACTION (ACCURATE ITEM & DESCRIPTION SEPARATION):
-           - Parse ALL rows inside the line items table.
-           - "PartNo": Part number if present (else "").
-           - "ItemName": Primary equipment, service name, or title (e.g., "VDR APT", "Radio Survey", "Magnetron").
-           - "Description": Specific model, serial no, detailed specs, or sub-lines (e.g., "JRC, JCY-1800", "Busan <--> Yeosu").
-           - "Qty": Quantity (Number, default 1).
-           - "UnitPrice": Unit price (Number).
-           - "Amount": Total amount (Number).
-           - "Remarks": Inline remarks/notes.
-
-        3. NO NULL STRINGS:
-           - Use "" for missing strings. Do NOT output "nan" or "N/A".
+        2. ITEM TABLE EXTRACTION:
+           - Parse ALL rows inside line items table.
+           - "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
+            "issuer_company": "",
+            "recipient_company": "",
             "to_name": "",
             "attn_name": "",
             "project_title": "",
@@ -716,7 +706,6 @@ st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1
 menu_options = [t("menu_gen"), t("menu_ledger"), t("menu_db"), t("menu_history")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
-# 매핑
 if menu_selection == t("menu_gen"): menu = "서류 통합 생성"
 elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
 elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
@@ -728,7 +717,7 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (비즈니스 순서 적용)
+# 6. 서류 통합 생성 (⭐ 유기적 수발신 반전 적용)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -742,12 +731,35 @@ if menu == "서류 통합 생성":
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
+        
+        # ⭐ 유기적 수발신 반전(Role Reversal) 로직
+        recipient_check = (ai_data.get("recipient_company", "") + " " + ai_data.get("to_name", "")).lower()
+        is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
+        
+        if is_incoming_to_us:
+            # 상대방이 보낸 수신 문서인 경우: 상대방 발행처가 당사 회신서류의 수신처(To)가 됨
+            to_field_val = ai_data.get("issuer_company") or ai_data.get("attn_name") or ai_data.get("to_name", "")
+            your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "") # 상대방 Our Ref가 당사의 Your Ref가 됨
+            our_ref_val = ""
+        else:
+            to_field_val = ai_data.get("to_name", "")
+            your_ref_val = ai_data.get("your_ref", "")
+            our_ref_val = ai_data.get("our_ref", "")
+
         st.session_state['doc_info'] = {
-            "to": ai_data.get("to_name", ""), "attn": ai_data.get("attn_name", ""), "project_title": ai_data.get("project_title", ""),
-            "validity": ai_data.get("validity", ""), "flag_class": ai_data.get("flag_class", ""), "our_ref": ai_data.get("our_ref", ""),
-            "date": ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")), "pic": ai_data.get("pic", ""),
-            "your_ref": ai_data.get("your_ref", ""), "ship": ai_data.get("ship_name", ""), "payment_due": ai_data.get("payment_due", ""),
-            "currency": ai_data.get("currency", "KRW"), "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
+            "to": to_field_val, 
+            "attn": ai_data.get("attn_name", ""), 
+            "project_title": ai_data.get("project_title", ""),
+            "validity": ai_data.get("validity", ""), 
+            "flag_class": ai_data.get("flag_class", ""), 
+            "our_ref": our_ref_val,
+            "date": ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")), 
+            "pic": st.session_state.get('user_email', ''), # 담당자는 당사 작성자로 자동 세팅
+            "your_ref": your_ref_val, 
+            "ship": ai_data.get("ship_name", ""), 
+            "payment_due": ai_data.get("payment_due", ""),
+            "currency": ai_data.get("currency", "KRW"), 
+            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
         
         parsed_items = ai_data.get("items", [])
@@ -775,7 +787,7 @@ if menu == "서류 통합 생성":
                     items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
             st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
-        st.success("✅ AI Analysis Complete.")
+        st.success("✅ AI Analysis Complete & Roles Auto-Reversed.")
 
     left_col, right_col = st.columns([5, 5])
 
@@ -810,7 +822,7 @@ if menu == "서류 통합 생성":
         date_str = st.text_input("Date", value=st.session_state['doc_info'].get("date", datetime.now().strftime("%Y-%m-%d")))
         validity = st.text_input("Validity", value=st.session_state['doc_info'].get("validity", ""))
         payment_due = st.text_input("Payment Due", value=st.session_state['doc_info'].get("payment_due", ""))
-        pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", ""))
+        pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", st.session_state.get('user_email', '')))
         
         sel_ship = st.selectbox("Ship's Name", options=[""] + history["ships"])
         ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
@@ -934,7 +946,7 @@ if menu == "서류 통합 생성":
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장 (⭐ 2단계 동적 연동 필터 적용)
+# 7. 서류 관리대장 (2단계 동적 연동 필터)
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
@@ -948,16 +960,13 @@ elif menu == "서류 관리대장":
 
         f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
         
-        # 필터 대상 가능한 컬럼 목록
         valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "Date", "YourRef", "OurRef"]
         col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
         
         with f_col1:
-            # 1단계: 필터 항목(컬럼) 선택
             selected_col = st.selectbox(t("filter_category"), col_options)
 
         with f_col2:
-            # 2단계: 선택된 컬럼의 유니크 값을 동적으로 하위 옵션 생성
             if selected_col == t("all"):
                 sub_options = [t("all")]
                 selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True)
@@ -971,11 +980,9 @@ elif menu == "서류 관리대장":
 
         filtered_df = ledger_df.copy()
 
-        # 2단계 동적 필터링 적용
         if selected_col != t("all") and selected_val != t("all"):
             filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
 
-        # 키워드 필터링 적용
         if keyword.strip():
             kw = keyword.strip().lower()
             match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
