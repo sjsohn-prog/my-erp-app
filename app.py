@@ -126,7 +126,7 @@ if "code" in query_params and not st.session_state['authenticated']:
             st.query_params.clear()
             st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 선명하고 선명한 버튼 스타일 적용된 로그인 카드
+# ⭐ 테스트 로그인 버튼과 동일한 디자인으로 적용된 구글 로그인 버튼
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -144,20 +144,18 @@ if not st.session_state['authenticated']:
                 <a href="{auth_url}" target="_self" style="
                     display: block; 
                     width: 100%; 
-                    background-color: #2563EB !important; 
+                    background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
                     color: #FFFFFF !important; 
-                    font-weight: 800 !important; 
-                    padding: 12px 0; 
-                    border-radius: 8px; 
+                    font-weight: 700 !important; 
+                    border: none !important; 
+                    padding: 8px 16px !important; 
+                    border-radius: 8px !important; 
+                    font-size: 0.95rem !important; 
                     text-decoration: none !important; 
                     text-align: center; 
-                    font-size: 0.98rem; 
-                    letter-spacing: 0.5px;
-                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); 
-                    border: 1px solid #1D4ED8;
+                    box-sizing: border-box;
                     margin-bottom: 12px;
-                    opacity: 1.0 !important;
-                    filter: none !important;
+                    line-height: 1.6;
                 ">🔑 Google 계정으로 로그인</a>
                 """
                 st.markdown(google_btn_html, unsafe_allow_html=True)
