@@ -116,18 +116,18 @@ if "code" in query_params and not st.session_state['authenticated']:
     except Exception as e:
         st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 고대비 선명한 구글 로그인 단독 화면
+# ⭐ 로그인 및 테스트 직통 진입 통합 화면
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
-    st.write("")
-    _, center_col, _ = st.columns([1, 1.5, 1])
+    _, center_col, _ = st.columns([1, 1.6, 1])
     
     with center_col:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align: center; margin-top: 12px; margin-bottom: 6px; font-weight: 800;'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 0.9rem; color: #94A3B8; margin-bottom: 28px;'>사내 임직원 전용 서류 관리 시스템</p>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; margin-top: 10px; margin-bottom: 4px; font-weight: 800;'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 20px;'>사내 임직원 전용 서류 관리 시스템</p>", unsafe_allow_html=True)
             
+            # 1. 구글 OAuth 로그인 영역
             if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
                 auth_url = get_google_auth_url()
                 google_btn_html = f"""
@@ -137,20 +137,29 @@ if not st.session_state['authenticated']:
                     background-color: #1A73E8; 
                     color: #FFFFFF !important; 
                     font-weight: 800; 
-                    padding: 14px 0; 
+                    padding: 12px 0; 
                     border-radius: 8px; 
                     text-decoration: none; 
                     text-align: center; 
-                    font-size: 1.05rem; 
+                    font-size: 0.98rem; 
                     letter-spacing: 0.5px;
-                    box-shadow: 0 4px 12px rgba(26, 115, 232, 0.35); 
+                    box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3); 
                     border: 1px solid #1557B0;
-                    margin-bottom: 12px;
+                    margin-bottom: 16px;
                 ">🔑 Google 계정으로 로그인</a>
                 """
                 st.markdown(google_btn_html, unsafe_allow_html=True)
             else:
-                st.warning("⚠️ 구글 OAuth 설정이 비어있습니다. (Secrets 설정 필요)")
+                st.info("💡 Secrets 구글 인증 정보 미설정 상태")
+
+            st.markdown("<div style='text-align: center; font-size: 0.82rem; color: #64748B; margin: 12px 0 16px 0;'>── 또는 테스트 직통 로그인 ──</div>", unsafe_allow_html=True)
+            
+            # 2. 테스트 직통 진입 버튼
+            test_email = st.text_input("접속 이메일", value=f"sjsohn@{ALLOWED_DOMAIN}")
+            if st.button("🚀 체험판 직통 진입"):
+                st.session_state['authenticated'] = True
+                st.session_state['user_email'] = test_email
+                st.rerun()
     st.stop()
 
 # ==========================================
