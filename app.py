@@ -19,7 +19,6 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 ADMIN_PASSWORD = "admin1234"
 DEFAULT_GEMINI_KEY = ""
 
-# 드롭다운 옵션 목록 (기국 / 선급)
 FLAG_OPTIONS = ["선택 안함", "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
 CLASS_OPTIONS = ["선택 안함", "KR", "NK", "LR", "DNV", "ABS", "BV", "RINA", "IRS", "CCS", "KR & NK", "DNV & LR"]
 
@@ -30,24 +29,24 @@ st.set_page_config(page_title="ONESOLUTION Enterprise ERP", layout="wide", page_
 
 custom_css = """
 <style>
-    .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 20px 24px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-    .main-header h1 { color: var(--text-color); font-size: 1.8rem; font-weight: 800; margin: 0; }
-    .main-header p { color: var(--text-color); opacity: 0.85; margin: 6px 0 0 0; font-size: 0.95rem; font-weight: 500; }
-    .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .section-title { color: #0284C7; font-size: 1.15rem; font-weight: 800; margin-bottom: 16px; }
-    .stButton > button { width: 100%; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; color: #FFFFFF !important; font-weight: 700 !important; border: none !important; padding: 10px 20px !important; border-radius: 8px !important; font-size: 1rem !important; }
+    .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
+    .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
+    .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
+    .stButton > button { width: 100%; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; color: #FFFFFF !important; font-weight: 700 !important; border: none !important; padding: 8px 16px !important; border-radius: 8px !important; font-size: 0.95rem !important; }
     .stButton > button:disabled { background: #64748B !important; color: #F1F5F9 !important; cursor: not-allowed !important; }
-    .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 16px 20px; border-radius: 10px; text-align: right; font-size: 1.3rem; font-weight: 800; color: #0284C7; margin-top: 12px; }
-    .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-    .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite; margin-right: 15px; }
+    .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 12px 16px; border-radius: 10px; text-align: right; font-size: 1.15rem; font-weight: 800; color: #0284C7; margin-top: 10px; }
+    .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .loader-text { color: var(--text-color); font-weight: 700; font-size: 1.1rem; }
+    .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (비즈니스 양식 정밀 반영)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -284,17 +283,16 @@ def generate_pdf(context):
     pdf_bytes = HTML(string=html_out).write_pdf()
     return pdf_bytes
 
-def show_pdf_preview(pdf_bytes):
+def render_pdf_images(pdf_bytes):
+    images = []
     try:
         import fitz
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        st.markdown("#### 📄 생성된 PDF 문서 미리보기")
-        for i, page in enumerate(doc):
+        for page in doc:
             pix = page.get_pixmap(dpi=150)
-            img_bytes = pix.tobytes("png")
-            st.image(img_bytes, caption=f"Page {i+1}", use_container_width=True)
-    except Exception:
-        st.error("미리보기를 불러올 수 없습니다. 다운로드 버튼을 이용해주세요.")
+            images.append(pix.tobytes("png"))
+    except Exception: pass
+    return images
 
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
@@ -302,7 +300,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 4. AI 파싱 엔진
+# 4. AI 파싱 엔진 (품목 정확도 및 파싱 완벽 복구)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
@@ -349,17 +347,22 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         Extract document details into JSON format matching the fixed header fields and item list.
         
         CRITICAL RULES FOR EXTRACTION:
-        1. STRICT SEPARATION OF METADATA VS. TABLE ITEMS:
-           - Clearly distinguish document-level metadata from table items.
-           - Header fields to extract: "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
-           - NEVER merge document metadata into Item #1's "Description".
-           
-        2. ITEM NAME vs DESCRIPTION SEPARATION:
-           - "ItemName": Main product/service title.
-           - "Description": Model, serial no, or detailed specs.
+        1. HEADER FIELDS EXTRACTION:
+           - Extract "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
+           - DO NOT mix document title lines or header vessel names into Item #1's Description!
 
-        3. ABSOLUTE NO "nan" OR "N/A":
-           - Return "" for missing string fields.
+        2. ITEM TABLE EXTRACTION (ACCURATE ITEM & DESCRIPTION SEPARATION):
+           - Parse ALL rows inside the line items table.
+           - "PartNo": Part number if present (else "").
+           - "ItemName": Primary equipment, service name, or title (e.g., "VDR APT", "Radio Survey", "Magnetron").
+           - "Description": Specific model, serial no, detailed specs, or sub-lines (e.g., "JRC, JCY-1800", "Busan <--> Yeosu").
+           - "Qty": Quantity (Number, default 1).
+           - "UnitPrice": Unit price (Number).
+           - "Amount": Total amount (Number).
+           - "Remarks": Inline remarks/notes.
+
+        3. NO NULL STRINGS:
+           - Use "" for missing strings. Do NOT output "nan" or "N/A".
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
@@ -441,21 +444,12 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI 작업 오류: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성
+# 6. 서류 통합 생성 (실시간 PDF 미리보기 & 슬림 헤더)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox("📋 서류 유형 선택", ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
 
     st.markdown(f"""<div class="main-header"><h1>📄 스마트 서류 자동 생성 시스템 ({doc_type})</h1><p>AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.</p></div>""", unsafe_allow_html=True)
-
-    col_empty1, col_empty2 = st.columns([8, 2])
-    with col_empty2:
-        if st.button("🔄 서류 초기화", disabled=is_running):
-            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
-            if 'last_pdf' in st.session_state: del st.session_state['last_pdf']
-            if 'last_file' in st.session_state: del st.session_state['last_file']
-            st.rerun()
 
     db = clean_df(pd.read_csv(DB_FILE))
 
@@ -495,134 +489,105 @@ if menu == "서류 통합 생성":
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
 
-    with st.expander("🤖 AI 문서 분석", expanded=True):
-        ai_mode_choice = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running)
-        selected_mode = "thinking" if "Thinking" in ai_mode_choice else "flash"
-        uploaded_doc = st.file_uploader("문서 업로드 (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
-        if uploaded_doc and st.button("✨ AI 문서 분석", disabled=is_running):
-            st.session_state['bg_task']['type'] = 'doc_parse'
-            start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
+    # ⭐ 실시간 미리보기 분할 레이아웃 (좌측 입력 4 : 우측 PDF 미리보기 6)
+    left_col, right_col = st.columns([4, 6])
+
+    with left_col:
+        with st.expander("🤖 AI 문서 분석", expanded=False):
+            ai_mode_choice = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running)
+            selected_mode = "thinking" if "Thinking" in ai_mode_choice else "flash"
+            uploaded_doc = st.file_uploader("문서 업로드 (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
+            if uploaded_doc and st.button("✨ AI 문서 분석", disabled=is_running):
+                st.session_state['bg_task']['type'] = 'doc_parse'
+                start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
+                st.rerun()
+
+        if st.button("🔄 서류 입력 초기화", disabled=is_running):
+            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
+            st.session_state['doc_items'] = pd.DataFrame([{"No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
             st.rerun()
 
-    history = load_history()
-    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-title">📌 {doc_type} 고정 헤더 정보</div>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    with col1:
+        history = load_history()
+        st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">📌 {doc_type} 헤더 입력 (슬림 배치)</div>', unsafe_allow_html=True)
+        
+        # ⭐ 헤더 입력을 1열 슬림 형태로 수직 배치
         sel_to = st.selectbox("To (수신처 선택)", options=[""] + history["to_list"])
         to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
         
         sel_attn = st.selectbox("Attention (참조/담당자 선택)", options=[""] + history["attns"])
         attn_name = st.text_input("Attention", value=st.session_state['doc_info']["attn"] if not sel_attn else sel_attn)
         
-        project_title = st.text_input("Project Title (단독행)", value=st.session_state['doc_info'].get("project_title", ""))
+        project_title = st.text_input("Project Title", value=st.session_state['doc_info'].get("project_title", ""))
+        our_ref = st.text_input("Our Ref. No.", value=st.session_state['doc_info'].get("our_ref", ""))
+        your_ref = st.text_input("Your Ref. No.", value=st.session_state['doc_info'].get("your_ref", ""))
+        date_str = st.text_input("Date", value=st.session_state['doc_info'].get("date", datetime.now().strftime("%Y-%m-%d")))
         validity = st.text_input("Validity", value=st.session_state['doc_info'].get("validity", ""))
+        payment_due = st.text_input("Payment Due", value=st.session_state['doc_info'].get("payment_due", ""))
         pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", ""))
         
         sel_ship = st.selectbox("Ship's Name (선박명 선택)", options=[""] + history["ships"])
         ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
 
-    with col2:
-        our_ref = st.text_input("Our Ref. No.", value=st.session_state['doc_info'].get("our_ref", ""))
-        date_str = st.text_input("Date", value=st.session_state['doc_info'].get("date", datetime.now().strftime("%Y-%m-%d")))
-        your_ref = st.text_input("Your Ref. No.", value=st.session_state['doc_info'].get("your_ref", ""))
-        payment_due = st.text_input("Payment Due (결제 만기일)", value=st.session_state['doc_info'].get("payment_due", ""))
-        
-        # ⭐ Flag (기국) & Class (선급) 드롭다운 선택 도우미
-        st.write("🚩 **Flag / Class 선택 도우미**")
+        # Flag / Class 선택
         col_fc1, col_fc2 = st.columns(2)
-        with col_fc1:
-            sel_flag = st.selectbox("Flag (기국)", FLAG_OPTIONS)
-        with col_fc2:
-            sel_class = st.selectbox("Class (선급)", CLASS_OPTIONS)
+        with col_fc1: sel_flag = st.selectbox("Flag", FLAG_OPTIONS)
+        with col_fc2: sel_class = st.selectbox("Class", CLASS_OPTIONS)
             
         curr_fc = st.session_state['doc_info'].get("flag_class", "")
         if sel_flag != "선택 안함" or sel_class != "선택 안함":
             flag_part = sel_flag if sel_flag != "선택 안함" else ""
             class_part = sel_class if sel_class != "선택 안함" else ""
             auto_fc = f"{flag_part} / {class_part}".strip(" /")
-        else:
-            auto_fc = curr_fc
+        else: auto_fc = curr_fc
 
         flag_class = st.text_input("Flag / Class (직접 수정 가능)", value=auto_fc)
 
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
         currency = st.selectbox("Currency (통화)", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
 
-    st.markdown('<div class="section-title" style="margin-top:20px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
-    
-    if not db.empty:
-        with st.expander("🔍 과거 등록 자재 DB 검색 및 1-Click 스펙 매칭 도우미", expanded=False):
-            search_kw = st.text_input("검색할 자재명/스펙 입력", value="")
-            if search_kw.strip():
-                cond1 = db['ItemName'].astype(str).str.contains(search_kw.strip(), case=False, na=False) if 'ItemName' in db.columns else False
-                cond2 = db['Description'].astype(str).str.contains(search_kw.strip(), case=False, na=False) if 'Description' in db.columns else False
-                matched_db = db[cond1 | cond2]
-                if not matched_db.empty:
-                    opts = [f"PartNo: {r['PartNo']} | 품목명: {r.get('ItemName','')} | 단가: {r['UnitPrice']:,.0f}" for _, r in matched_db.iterrows()]
-                    selected_match = st.selectbox("적용할 과거 자재 스펙을 선택하세요", ["선택 안함"] + opts)
-                    if selected_match != "선택 안함":
-                        chosen_row = matched_db.iloc[opts.index(selected_match) - 1]
-                        target_row_num = st.number_input("아래 품목 테이블의 몇 번째 행(No)에 적용할까요?", min_value=1, max_value=max(len(st.session_state['doc_items']), 1), value=1)
-                        if st.button("✨ 선택한 스펙을 해당 행에 반영하기"):
-                            r_idx = target_row_num - 1
-                            if r_idx < len(st.session_state['doc_items']):
-                                st.session_state['doc_items'].at[r_idx, 'PartNo'] = str(chosen_row.get('PartNo', ''))
-                                st.session_state['doc_items'].at[r_idx, 'ItemName'] = str(chosen_row.get('ItemName', ''))
-                                st.session_state['doc_items'].at[r_idx, 'Description'] = str(chosen_row.get('Description', ''))
-                                u_price = float(chosen_row.get('UnitPrice', 0.0))
-                                qty_val = float(st.session_state['doc_items'].at[r_idx, 'Qty']) if 'Qty' in st.session_state['doc_items'].columns else 1.0
-                                st.session_state['doc_items'].at[r_idx, 'UnitPrice'] = u_price
-                                st.session_state['doc_items'].at[r_idx, 'Amount'] = u_price * qty_val
-                                st.session_state['doc_items'] = clean_df(st.session_state['doc_items'])
-                                st.success("스펙이 성공적으로 반영되었습니다!")
-                                st.rerun()
+        st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
+        
+        item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
+        column_config = {
+            "PartNo": st.column_config.TextColumn("PartNo", width="small"),
+            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
+            "Description": st.column_config.TextColumn("Description", width="large"),
+            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
+            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
+            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
+            "Remarks": st.column_config.TextColumn("Remarks", width="medium"),
+        }
 
-    item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
-    column_config = {
-        "PartNo": st.column_config.TextColumn("PartNo", width="small"),
-        "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
-        "Description": st.column_config.TextColumn("Description", width="large"),
-        "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
-        "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
-        "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
-        "Remarks": st.column_config.TextColumn("Remarks", width="medium"),
-    }
+        df_current = clean_df(st.session_state['doc_items'].copy())
+        for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
+            if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
 
-    df_current = clean_df(st.session_state['doc_items'].copy())
-    for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
-        if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
+        for i, row in df_current.iterrows():
+            if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
+                df_current.at[i, 'Amount'] = float(row.get('Qty', 1)) * float(row.get('UnitPrice', 0.0))
 
-    for i, row in df_current.iterrows():
-        if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
-            df_current.at[i, 'Amount'] = float(row.get('Qty', 1)) * float(row.get('UnitPrice', 0.0))
+        edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
-    edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
+        for i, row in edited_df.iterrows():
+            if pd.notna(row.get('ItemName')) and row['ItemName'] in db['ItemName'].values:
+                match_row = db[db['ItemName'] == row['ItemName']].iloc[0]
+                if not row.get('PartNo') or pd.isna(row.get('PartNo')): edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
+                if not row.get('Description') or pd.isna(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
+                if row.get('UnitPrice', 0.0) == 0.0 or pd.isna(row.get('UnitPrice')):
+                    u_p = float(match_row.get('UnitPrice', 0.0))
+                    edited_df.at[i, 'UnitPrice'] = u_p
+                    if edited_df.at[i, 'Amount'] == 0.0: edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
 
-    for i, row in edited_df.iterrows():
-        if pd.notna(row.get('ItemName')) and row['ItemName'] in db['ItemName'].values:
-            match_row = db[db['ItemName'] == row['ItemName']].iloc[0]
-            if not row.get('PartNo') or pd.isna(row.get('PartNo')): edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
-            if not row.get('Description') or pd.isna(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
-            if row.get('UnitPrice', 0.0) == 0.0 or pd.isna(row.get('UnitPrice')):
-                u_p = float(match_row.get('UnitPrice', 0.0))
-                edited_df.at[i, 'UnitPrice'] = u_p
-                if edited_df.at[i, 'Amount'] == 0.0: edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
+        if "Amount" in edited_df.columns:
+            total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
+            st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
+        else: total_val = 0.0
 
-    if "Amount" in edited_df.columns:
-        total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
-        st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
-    else: total_val = 0.0
-
-    st.markdown('<div class="section-title" style="margin-top:20px;">📝 Remarks & Deviations</div>', unsafe_allow_html=True)
-    bottom_remarks = st.text_area("하단 비고란", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=100)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-title">📌 작업 실행</div>', unsafe_allow_html=True)
-    col_act1, col_act2 = st.columns(2)
-    
-    with col_act1:
+        st.markdown('<div class="section-title" style="margin-top:16px;">📝 Remarks & Deviations</div>', unsafe_allow_html=True)
+        bottom_remarks = st.text_area("하단 비고란", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80)
+        
+        st.markdown('<div class="section-title" style="margin-top:16px;">📌 관리대장 저장</div>', unsafe_allow_html=True)
         if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
             st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
             st.session_state['doc_items'] = clean_df(edited_df)
@@ -632,31 +597,36 @@ if menu == "서류 통합 생성":
             save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df))
             save_history(ship_name, to_name, attn_name)
             st.success("🎉 서류 관리대장 및 마스터 DB 등록 완료")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_act2:
-        if st.button(f"⚡ {doc_type} PDF 생성", type="primary", disabled=is_running):
-            st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
-            st.session_state['doc_items'] = clean_df(edited_df)
-            save_history(ship_name, to_name, attn_name)
-
-            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
-
-            ctx = {
-                "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
-                "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
-                "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
-                "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
-            }
-            pdf = generate_pdf(ctx)
-            file_n = f"{doc_type}_{our_ref or your_ref}.pdf"
-            with open(f"output/{file_n}", "wb") as f: f.write(pdf)
-            st.session_state['last_pdf'] = pdf
-            st.session_state['last_file'] = file_n
-
-    if 'last_pdf' in st.session_state:
-        st.markdown("---")
-        st.download_button("💾 PDF 문서 다운로드", st.session_state['last_pdf'], file_name=st.session_state['last_file'], mime="application/pdf")
-        show_pdf_preview(st.session_state['last_pdf'])
+    # ⭐ 우측 실시간 PDF 미리보기 영역
+    with right_col:
+        st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">⚡ 실시간 PDF 문서 미리보기</div>', unsafe_allow_html=True)
+        
+        pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
+        preview_ctx = {
+            "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
+            "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
+            "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
+            "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
+        }
+        
+        # 실시간 PDF 생성
+        realtime_pdf_bytes = generate_pdf(preview_ctx)
+        
+        # 다운로드 버튼
+        file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
+        st.download_button("💾 완성된 PDF 다운로드", realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
+        
+        # 고화질 미리보기 렌더링
+        pdf_imgs = render_pdf_images(realtime_pdf_bytes)
+        if pdf_imgs:
+            for i, img_b in enumerate(pdf_imgs):
+                st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
+        else:
+            st.info("PDF 미리보기를 생성 중입니다...")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
 # 7. 서류 관리대장 ~ 기타 메뉴
