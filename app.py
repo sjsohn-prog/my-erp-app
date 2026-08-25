@@ -73,10 +73,9 @@ TRANSLATIONS = {
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
         "ledger_title": "📊 서류 발행 관리대장 및 실시간 검색",
-        "filter_doc_type": "📋 서류 유형 필터",
-        "filter_ship": "🚢 선박명 필터",
-        "filter_user": "👤 작성자 필터",
-        "filter_keyword": "🔎 키워드 검색 (Ref, 수신처 등)",
+        "filter_category": "1️⃣ 필터 항목 선택",
+        "filter_value": "2️⃣ 하위 값 선택",
+        "filter_keyword": "🔎 키워드 통합 검색",
         "filter_keyword_ph": "검색어 입력...",
         "total_records": "**총 `{count}` 건 조회됨** (전체 `{total}` 건 중)",
         "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
@@ -129,10 +128,9 @@ TRANSLATIONS = {
         "preview_title": "⚡ Live PDF Document Preview",
         "btn_download_pdf": "💾 Download PDF Document",
         "ledger_title": "📊 Document Ledger & Real-time Search",
-        "filter_doc_type": "📋 Document Type Filter",
-        "filter_ship": "🚢 Vessel Filter",
-        "filter_user": "👤 Creator Filter",
-        "filter_keyword": "🔎 Search Keyword (Ref, Client, etc.)",
+        "filter_category": "1️⃣ Select Filter Column",
+        "filter_value": "2️⃣ Select Sub-value",
+        "filter_keyword": "🔎 Search Keyword",
         "filter_keyword_ph": "Type keyword...",
         "total_records": "**Total `{count}` record(s) found** (Out of `{total}`)",
         "btn_download_csv": "📥 Download Filtered Excel (CSV)",
@@ -609,7 +607,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
             continue
     raise Exception(f"AI 모델 호출 실패: {last_err}")
 
-# ⭐ 문서 종류 명칭 제거 후 깔끔한 안내 메시지로 전환
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -731,10 +728,9 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (⭐ 비즈니스 순서 적용)
+# 6. 서류 통합 생성 (비즈니스 순서 적용)
 # ==========================================
 if menu == "서류 통합 생성":
-    # ⭐ 비즈니스 프로세스 순서 재배치 (Quotation -> Purchase Order -> Invoice -> Delivery Note -> Service Report -> Credit Note)
     doc_type = st.sidebar.selectbox(
         "📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), 
         ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]
@@ -938,7 +934,7 @@ if menu == "서류 통합 생성":
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장
+# 7. 서류 관리대장 (⭐ 2단계 동적 연동 필터 적용)
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
@@ -950,27 +946,36 @@ elif menu == "서류 관리대장":
         if "CreatedBy" not in ledger_df.columns:
             ledger_df["CreatedBy"] = "-"
 
-        f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 3])
+        f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
+        
+        # 필터 대상 가능한 컬럼 목록
+        valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "Date", "YourRef", "OurRef"]
+        col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
+        
         with f_col1:
-            doc_types = [t("all")] + sorted([d for d in ledger_df["DocType"].unique() if d])
-            sel_doctype = st.selectbox(t("filter_doc_type"), doc_types)
+            # 1단계: 필터 항목(컬럼) 선택
+            selected_col = st.selectbox(t("filter_category"), col_options)
+
         with f_col2:
-            ships = [t("all")] + sorted([s for s in ledger_df["ShipName"].unique() if s and s != "-"])
-            sel_ship = st.selectbox(t("filter_ship"), ships)
+            # 2단계: 선택된 컬럼의 유니크 값을 동적으로 하위 옵션 생성
+            if selected_col == t("all"):
+                sub_options = [t("all")]
+                selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True)
+            else:
+                unique_vals = sorted([str(x) for x in ledger_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
+                sub_options = [t("all")] + unique_vals
+                selected_val = st.selectbox(t("filter_value"), sub_options)
+
         with f_col3:
-            users = [t("all")] + sorted([u for u in ledger_df["CreatedBy"].unique() if u and u != "-"])
-            sel_user = st.selectbox(t("filter_user"), users)
-        with f_col4:
             keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"))
 
         filtered_df = ledger_df.copy()
 
-        if sel_doctype != t("all"):
-            filtered_df = filtered_df[filtered_df["DocType"] == sel_doctype]
-        if sel_ship != t("all"):
-            filtered_df = filtered_df[filtered_df["ShipName"] == sel_ship]
-        if sel_user != t("all"):
-            filtered_df = filtered_df[filtered_df["CreatedBy"] == sel_user]
+        # 2단계 동적 필터링 적용
+        if selected_col != t("all") and selected_val != t("all"):
+            filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
+
+        # 키워드 필터링 적용
         if keyword.strip():
             kw = keyword.strip().lower()
             match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
