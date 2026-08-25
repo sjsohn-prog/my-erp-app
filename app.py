@@ -59,8 +59,8 @@ TRANSLATIONS = {
         "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
         "ai_mode_label": "AI 분석 엔진 선택",
-        "mode_flash": "⚡ 고속 Flash 모드",
-        "mode_thinking": "🧠 심층 Thinking (사고) 모드",
+        "mode_flash": "⚡ Gemini 3.6 Flash (고속)",
+        "mode_thinking": "🧠 Gemini 3.6 Flash (사고)",
         "upload_doc_label": "문서 업로드 (PDF, JPG, PNG)",
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
@@ -115,8 +115,8 @@ TRANSLATIONS = {
         "doc_gen_desc": "Supports fixed template & Master DB linked generation based on AI document analysis.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
         "ai_mode_label": "Select AI Engine",
-        "mode_flash": "⚡ High-Speed Flash",
-        "mode_thinking": "🧠 Deep Thinking",
+        "mode_flash": "⚡ Gemini 3.6 Flash (Fast)",
+        "mode_thinking": "🧠 Gemini 3.6 Flash (Thinking)",
         "upload_doc_label": "Upload Document (PDF, JPG, PNG)",
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
@@ -263,7 +263,7 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# ⭐ 상단 우측 언어 토글 스위치 (KR | EN)
+# 상단 우측 언어 토글 스위치 (KR | EN)
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed")
@@ -580,26 +580,18 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 4. AI 파싱 엔진
+# 4. AI 파싱 엔진 (Gemini 3.6 Flash 모델 고정)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
-    if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
-    genai.configure(api_key=api_key)
+    if not api_key or not str(api_key).strip():
+        raise Exception("Gemini API Key가 누락되었습니다.")
+    genai.configure(api_key=api_key.strip())
     
-    available_models = []
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-    except Exception: pass
-
-    if available_models:
-        if mode == "thinking":
-            candidate_models = [m for m in available_models if any(k in m.lower() for k in ['thinking', 'pro', '2.5'])] + available_models
-        else:
-            candidate_models = [m for m in available_models if 'flash' in m.lower()] + available_models
+    # Gemini 3.6 Flash 모델 타겟팅 고정
+    if mode == "thinking":
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash', 'gemini-1.5-flash']
     else:
-        candidate_models = ['models/gemini-1.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-pro']
+        candidate_models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
 
     last_err = None
     for model_name in candidate_models:
@@ -617,11 +609,12 @@ def get_ai_response(api_key, content_list, mode="flash"):
             continue
     raise Exception(f"AI 모델 호출 실패: {last_err}")
 
+# ⭐ 문서 종류 명칭 제거 후 깔끔한 안내 메시지로 전환
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
-        mode_label = "Thinking(사고)" if ai_mode == "thinking" else "Flash(고속)"
-        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
         
         prompt = f"""
         Extract document details into JSON format matching the fixed header fields and item list.
@@ -738,10 +731,14 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성
+# 6. 서류 통합 생성 (⭐ 비즈니스 순서 적용)
 # ==========================================
 if menu == "서류 통합 생성":
-    doc_type = st.sidebar.selectbox("📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
+    # ⭐ 비즈니스 프로세스 순서 재배치 (Quotation -> Purchase Order -> Invoice -> Delivery Note -> Service Report -> Credit Note)
+    doc_type = st.sidebar.selectbox(
+        "📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), 
+        ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]
+    )
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
