@@ -102,16 +102,13 @@ if 'bg_task' not in st.session_state:
 
 is_running = (st.session_state['bg_task']['status'] == 'running')
 
-# ⭐ Secrets 연동 지원 키 로드 함수
 def load_saved_key():
-    # 1. Streamlit Secrets 우선 조회
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
     except Exception:
         pass
         
-    # 2. 기본값 및 로컬 파일 조회
     if DEFAULT_GEMINI_KEY.strip(): return DEFAULT_GEMINI_KEY.strip()
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "r", encoding="utf-8") as f:
@@ -121,7 +118,7 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# DB 초기화 (PartNo, ItemName, Description 구조 보장)
+# DB 초기화
 if os.path.exists(DB_FILE):
     db_init = pd.read_csv(DB_FILE)
     if "Category" in db_init.columns and "PartNo" not in db_init.columns:
@@ -163,10 +160,8 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, date_str
     updated_ledger = pd.concat([ledger_df, new_entry], ignore_index=True)
     updated_ledger.to_csv(LEDGER_FILE, index=False)
 
-# 안전한 DB 병합 (PartNo, ItemName, Description 중 하나라도 있으면 유실 없이 보존)
 def safe_merge_db(existing_db, new_data_df):
     if new_data_df is None or new_data_df.empty: return existing_db
-    
     combined = pd.concat([existing_db, new_data_df], ignore_index=True)
     for col in ['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']:
         if col not in combined.columns:
@@ -180,10 +175,12 @@ def safe_merge_db(existing_db, new_data_df):
     final_db = combined.drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
     return final_db
 
+# 고정 양식 필드에 일치하는 세션 초기화
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {
-        "ship": "", "your_ref": "", "our_ref": "", "to": "", "attn": "",
-        "date": "", "payment_due": "", "currency": ""
+        "to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "",
+        "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "",
+        "currency": "KRW", "bottom_remarks": ""
     }
 
 if 'doc_items' not in st.session_state:
@@ -213,7 +210,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 3. 동적 모델 검증 적용 AI 엔진
+# 3. AI 파싱 엔진 (사진과 동일한 헤더 매핑)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
@@ -262,31 +259,42 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
         
         prompt = f"""
-        Based on the uploaded document, extract details to GENERATE a new '{doc_type}'.
+        Extract document details to match the required fixed header fields:
         
-        ITEM SEPARATION & EXTRACTION RULES:
-        1. "ItemName": Main item name/title (e.g. Magnetron, Valve, Gasket). If omitted, use a general title.
-        2. "Description": Model number, technical specification, size, or detailed description.
-        3. Do NOT drop any item. Even if only ItemName OR Description exists, fill the available field and leave the other as "".
+        FIXED HEADER FIELDS:
+        1. "to_name": To (Client / Company Name)
+        2. "attn_name": Attention (Person / Dept)
+        3. "project_title": Project Title / Subject
+        4. "validity": Validity e.g. "By Aug 21, 2026"
+        5. "flag_class": Flag / Class e.g. "HONG KONG / NK"
+        6. "our_ref": Our Ref. No.
+        7. "date_str": Date (YYYY-MM-DD)
+        8. "pic": PIC (Person In Charge)
+        9. "your_ref": Your Ref. No.
+        10. "ship_name": Ship's Name
         
-        CRITICAL REFERENCE NUMBER RULES:
-        1. "your_ref": The reference/document number issued by the EXTERNAL sender (e.g. PO No, Inquiry Ref, Vendor Ref No).
-        2. "our_ref": Leave this BLANK "" unless the uploaded document explicitly quotes OUR internal Job/Quotation Ref No.
-        
-        ROLE-SWAP RULE: 
-        If the uploaded document is an incoming request/order from a client/vendor, the sender MUST become "to_name" (Receiver) and "attn_name".
+        ITEM LIST RULES:
+        - "PartNo": Part No
+        - "ItemName": Main item name
+        - "Description": Detailed description (Type, Model, Specs, multi-line details)
+        - "Qty": Quantity
+        - "UnitPrice": Price per unit
+        - "Remarks": Inline remarks
         
         Extract details into valid JSON:
         {{
-            "to_name": "Company Name", 
-            "ship_name": "Vessel Name", 
-            "your_ref": "Client or Vendor Ref No",
-            "our_ref": "Our Internal Ref / Job No", 
-            "attn_name": "Contact Person", 
+            "to_name": "Company Name",
+            "attn_name": "Contact Person",
+            "project_title": "Project Title",
+            "validity": "Validity",
+            "flag_class": "Flag / Class",
+            "our_ref": "Our Ref. No.",
             "date_str": "YYYY-MM-DD",
-            "payment_due": "Payment Terms / Due Date", 
-            "currency": "EUR/USD/KRW",
-            "items": [{{"PartNo": "Part No", "ItemName": "Item Name", "Description": "Description/Spec", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""}}]
+            "pic": "PIC Name",
+            "your_ref": "Your Ref. No.",
+            "ship_name": "Ship Name",
+            "currency": "KRW/USD/EUR",
+            "items": [{{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""}}]
         }}
         Return ONLY raw JSON.
         """
@@ -317,7 +325,7 @@ def run_bg_sheet_parse(task_state, api_key, excel_bytes, sheet_names, ai_mode):
                 df_clean = df_s.dropna(how='all').dropna(how='all', axis=1)
                 if not df_clean.empty:
                     csv_str = df_clean.to_csv(index=False)
-                    prompt = f"Extract ALL items from sheet '{s_name}' into JSON Array: [{{\"PartNo\":\"\", \"ItemName\":\"\", \"Description\":\"\", \"UnitPrice\":100.0, \"Remarks\":\"\"}}]. Do NOT skip items even if ItemName or Description is empty."
+                    prompt = f"Extract ALL items from sheet '{s_name}' into JSON Array: [{{\"PartNo\":\"\", \"ItemName\":\"\", \"Description\":\"\", \"UnitPrice\":100.0, \"Remarks\":\"\"}}]."
                     res = get_ai_response(api_key, [prompt, f"CSV Content:\n{csv_str}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
             except Exception: pass
@@ -339,7 +347,7 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 4. 사이드바 메뉴 및 상태 디스플레이
+# 4. 사이드바 메뉴
 # ==========================================
 st.sidebar.title("🚢 ONESOLUTION ERP")
 
@@ -367,12 +375,12 @@ elif task['status'] == 'error':
 # 5. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
-    doc_type = st.sidebar.selectbox("📋 서류 유형 선택", ["Invoice", "Quotation", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
+    doc_type = st.sidebar.selectbox("📋 서류 유형 선택", ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
 
     st.markdown(f"""
         <div class="main-header">
             <h1>📄 스마트 서류 자동 생성 시스템 ({doc_type})</h1>
-            <p>AI 문서 분석을 기반으로 {doc_type} 폼 작성 및 마스터 DB 등록을 지원합니다.</p>
+            <p>AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -380,8 +388,9 @@ if menu == "서류 통합 생성":
     with col_empty2:
         if st.button("🔄 서류 초기화", disabled=is_running):
             st.session_state['doc_info'] = {
-                "ship": "", "your_ref": "", "our_ref": "", "to": "", "attn": "",
-                "date": "", "payment_due": "", "currency": ""
+                "to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "",
+                "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "",
+                "currency": "KRW", "bottom_remarks": ""
             }
             st.session_state['doc_items'] = pd.DataFrame([{
                 "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
@@ -397,14 +406,18 @@ if menu == "서류 통합 생성":
         ai_data = res_data['ai_data']
         
         st.session_state['doc_info'] = {
-            "ship": ai_data.get("ship_name", ""),
-            "your_ref": ai_data.get("your_ref", ai_data.get("ref_no", "")),
-            "our_ref": ai_data.get("our_ref", ""),
             "to": ai_data.get("to_name", ""),
             "attn": ai_data.get("attn_name", ""),
-            "date": ai_data.get("date_str", ""),
-            "payment_due": ai_data.get("payment_due", ""),
-            "currency": ai_data.get("currency", "")
+            "project_title": ai_data.get("project_title", ""),
+            "validity": ai_data.get("validity", ""),
+            "flag_class": ai_data.get("flag_class", ""),
+            "our_ref": ai_data.get("our_ref", ""),
+            "date": ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")),
+            "pic": ai_data.get("pic", ""),
+            "your_ref": ai_data.get("your_ref", ""),
+            "ship": ai_data.get("ship_name", ""),
+            "currency": ai_data.get("currency", "KRW"),
+            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
         
         parsed_items = ai_data.get("items", [])
@@ -454,38 +467,42 @@ if menu == "서류 통합 생성":
 
     history = load_history()
 
+    # 사진과 100% 동일한 10개 고정 헤더 영역
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-title">📌 {doc_type} 기본 정보 및 참조번호</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">📌 {doc_type} 고정 헤더 정보 (Fixed Header)</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        sel_to = st.selectbox("수신 (To) 선택", options=[""] + history["to_list"])
-        to_name = st.text_input("수신처 명칭 (To)", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
+        sel_to = st.selectbox("To (수신처 선택)", options=[""] + history["to_list"])
+        to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
 
-        sel_ship = st.selectbox("선박명 (Ship's Name) 선택", options=[""] + history["ships"])
-        ship_name = st.text_input("선박명 입력 (Ship's Name)", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
+        sel_attn = st.selectbox("Attention (참조/담당자 선택)", options=[""] + history["attns"])
+        attn_name = st.text_input("Attention", value=st.session_state['doc_info']["attn"] if not sel_attn else sel_attn)
 
-        sel_attn = st.selectbox("참조/담당자 (Attn) 선택", options=[""] + history["attns"])
-        attn_name = st.text_input("담당자/수신자 (Attn)", value=st.session_state['doc_info']["attn"] if not sel_attn else sel_attn)
+        project_title = st.text_input("Project Title", value=st.session_state['doc_info'].get("project_title", ""))
+        validity = st.text_input("Validity", value=st.session_state['doc_info'].get("validity", ""))
+        flag_class = st.text_input("Flag / Class", value=st.session_state['doc_info'].get("flag_class", ""))
 
     with col2:
-        your_ref = st.text_input("고객사/협력사 참조번호 (Your Ref. No)", value=st.session_state['doc_info'].get("your_ref", ""))
-        our_ref = st.text_input("당사 참조번호 (Our Ref. No / Job No)", value=st.session_state['doc_info'].get("our_ref", ""))
+        our_ref = st.text_input("Our Ref. No.", value=st.session_state['doc_info'].get("our_ref", ""))
+        date_str = st.text_input("Date", value=st.session_state['doc_info'].get("date", datetime.now().strftime("%Y-%m-%d")))
+        pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", ""))
+        your_ref = st.text_input("Your Ref. No.", value=st.session_state['doc_info'].get("your_ref", ""))
         
-        date_str = st.text_input("발행일자 (Date)", value=st.session_state['doc_info'].get("date", ""))
-        payment_due = st.text_input("결제 조건/기한 (Payment Terms / Due)", value=st.session_state['doc_info'].get("payment_due", ""))
-        
-        curr_val = st.session_state['doc_info'].get("currency", "")
-        curr_opts = ["", "KRW", "EUR", "USD"]
+        sel_ship = st.selectbox("Ship's Name (선박명 선택)", options=[""] + history["ships"])
+        ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
+
+        curr_val = st.session_state['doc_info'].get("currency", "KRW")
+        curr_opts = ["KRW", "USD", "EUR"]
         curr_idx = curr_opts.index(curr_val) if curr_val in curr_opts else 0
-        currency = st.selectbox("적용 통화 (Currency)", curr_opts, index=curr_idx)
+        currency = st.selectbox("Currency (통화)", curr_opts, index=curr_idx)
 
     if doc_type == "Service Report":
         fault = st.text_area("A. Fault Reported")
         action = st.text_area("B. Action Taken")
         result = st.text_area("C. Result")
     
-    st.markdown('<div class="section-title" style="margin-top:20px;">📦 품목 상세 내역 (Part No, 품목명, 상세설명, 수량, 단가)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title" style="margin-top:20px;">📦 품목 상세 내역 (Price 콤마 및 멀티라인 자동적용)</div>', unsafe_allow_html=True)
     
     if not db.empty:
         with st.expander("🔍 과거 등록 자재 DB 검색 및 1-Click 스펙 매칭 도우미", expanded=False):
@@ -497,7 +514,7 @@ if menu == "서류 통합 생성":
                 
                 if not matched_db.empty:
                     st.write(f"💡 '{search_kw}' 검색 결과 ({len(matched_db)}건 발견):")
-                    opts = [f"PartNo: {r['PartNo']} | 품목명: {r.get('ItemName','')} | 상세: {r['Description']} | 단가: {r['UnitPrice']}" for _, r in matched_db.iterrows()]
+                    opts = [f"PartNo: {r['PartNo']} | 품목명: {r.get('ItemName','')} | 상세: {r['Description']} | 단가: {r['UnitPrice']:,.0f}" for _, r in matched_db.iterrows()]
                     selected_match = st.selectbox("적용할 과거 자재 스펙을 선택하세요", ["선택 안함"] + opts)
                     
                     if selected_match != "선택 안함":
@@ -519,10 +536,15 @@ if menu == "서류 통합 생성":
                 else:
                     st.info("검색된 자재 이력이 없습니다.")
 
-    column_config = {}
+    # 컬럼 구성 (단가 및 수량 천 단위 콤마 포맷팅 & Description/Remarks 짤림 방지 라지 컬럼)
     item_name_list = db["ItemName"].dropna().unique().tolist() if not db.empty and "ItemName" in db.columns else []
-    if item_name_list:
-        column_config["ItemName"] = st.column_config.SelectboxColumn("품목명 (DB 빠른 선택)", options=item_name_list)
+    column_config = {
+        "ItemName": st.column_config.SelectboxColumn("Item Name (품목명)", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
+        "Description": st.column_config.TextColumn("Description (Model, Type 등 상세규격)", width="large"),
+        "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
+        "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
+        "Remarks": st.column_config.TextColumn("Remarks (비고)", width="medium"),
+    }
 
     df_current = st.session_state['doc_items'].copy()
     for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Remarks"]:
@@ -548,6 +570,11 @@ if menu == "서류 통합 생성":
         st.markdown(f'<div class="total-badge">Total Amount: {disp_curr} {total_val:,.2f}</div>', unsafe_allow_html=True)
     else:
         total_val = 0.0
+
+    # 품목 하단 수기 입력 Remarks & Deviations 인풋 칸
+    st.markdown('<div class="section-title" style="margin-top:20px;">📝 Remarks & Deviations (하단 서류 특기사항 - 수기 입력)</div>', unsafe_allow_html=True)
+    bottom_remarks = st.text_area("하단 비고란 (PDF 서류 하단 [Remarks & Deviations] 영역에 직접 반영됩니다)", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=100)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-title">📌 작업 실행</div>', unsafe_allow_html=True)
@@ -556,8 +583,9 @@ if menu == "서류 통합 생성":
     with col_act1:
         if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
             st.session_state['doc_info'] = {
-                "ship": ship_name, "your_ref": your_ref, "our_ref": our_ref, "to": to_name,
-                "attn": attn_name, "date": date_str, "payment_due": payment_due, "currency": currency
+                "to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity,
+                "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name,
+                "your_ref": your_ref, "ship": ship_name, "currency": currency, "bottom_remarks": bottom_remarks
             }
             st.session_state['doc_items'] = edited_df
 
@@ -578,17 +606,29 @@ if menu == "서류 통합 생성":
     with col_act2:
         if st.button(f"⚡ {doc_type} PDF 생성", type="primary", disabled=is_running):
             st.session_state['doc_info'] = {
-                "ship": ship_name, "your_ref": your_ref, "our_ref": our_ref, "to": to_name,
-                "attn": attn_name, "date": date_str, "payment_due": payment_due, "currency": currency
+                "to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity,
+                "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name,
+                "your_ref": your_ref, "ship": ship_name, "currency": currency, "bottom_remarks": bottom_remarks
             }
             st.session_state['doc_items'] = edited_df
             save_history(ship_name, to_name, attn_name)
 
             ctx = {
-                "doc_title": doc_type.upper(), "to_name": to_name, "co_name": attn_name, "attn": attn_name,
-                "ship_name": ship_name, "ref_no": your_ref, "our_ref": our_ref, "job_no": our_ref or your_ref,
-                "date_str": date_str or datetime.now().strftime("%Y-%m-%d"), "payment_due": payment_due,
-                "currency": currency or "KRW", "items": edited_df.to_dict("records"), "total_amount": total_val
+                "doc_title": doc_type.upper(),
+                "to_name": to_name,
+                "attn_name": attn_name,
+                "project_title": project_title,
+                "validity": validity,
+                "flag_class": flag_class,
+                "our_ref": our_ref,
+                "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
+                "pic": pic_name,
+                "your_ref": your_ref,
+                "ship_name": ship_name,
+                "currency": currency or "KRW",
+                "items": edited_df.to_dict("records"),
+                "total_amount": total_val,
+                "bottom_remarks": bottom_remarks
             }
             if doc_type == "Service Report":
                 ctx.update({"fault": fault, "action": action, "result": result, "order_by": to_name, "owner_agent": attn_name})
@@ -717,8 +757,9 @@ elif menu == "마스터 DB 관리":
                 pd.DataFrame(columns=["Date", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount"]).to_csv(LEDGER_FILE, index=False)
                 with open(HISTORY_FILE, "w", encoding="utf-8") as f: json.dump({"ships": [], "to_list": [], "attns": []}, f, ensure_ascii=False, indent=2)
                 st.session_state['doc_info'] = {
-                    "ship": "", "your_ref": "", "our_ref": "", "to": "", "attn": "",
-                    "date": "", "payment_due": "", "currency": ""
+                    "to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "",
+                    "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "",
+                    "currency": "KRW", "bottom_remarks": ""
                 }
                 st.session_state['doc_items'] = pd.DataFrame([{
                     "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
