@@ -43,7 +43,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 오류 방지 적용 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -117,19 +117,19 @@ INLINE_HTML_TEMPLATE = """
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
                 <td class="col-desc">
-                    {% if item.ItemName and item.ItemName.strip() %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
-                    {% if item.Description and item.Description.strip() %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
-                    {% if item.Remarks and item.Remarks.strip() %}<br><span style="font-size: 8.5pt; color: #444;"><em>{{ item.Remarks }}</em></span>{% endif %}
+                    {% if item.ItemName %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
+                    {% if item.Description %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
+                    {% if item.Remarks %}<br><span style="font-size: 8.5pt; color: #444;"><em>{{ item.Remarks }}</em></span>{% endif %}
                 </td>
                 <td class="col-qty">{{ item.Qty }}</td>
-                <td class="col-price">{{ "{:,.0f}".format(item.UnitPrice) if item.UnitPrice else "" }}</td>
-                <td class="col-amt">{{ "{:,.0f}".format(item.Amount) if item.Amount else "" }}</td>
+                <td class="col-price">{{ item.UnitPriceFormatted }}</td>
+                <td class="col-amt">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 
-    {% if bottom_remarks and bottom_remarks.strip() %}
+    {% if bottom_remarks %}
     <div class="remarks-box">
         <strong>[Remarks & Deviations]</strong><br>
         {{ bottom_remarks | replace('\n', '<br>') }}
@@ -150,10 +150,52 @@ os.makedirs("output", exist_ok=True)
 
 def clean_df(df):
     if df is None or df.empty: return df
+    df = df.copy()
     df = df.fillna("")
     for col in df.columns:
         df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>"], "")
     return df
+
+# PDF 전달 전 숫자 포맷팅 안전 변환 함수
+def prepare_items_for_pdf(items_list):
+    formatted_items = []
+    for item in items_list:
+        item_copy = dict(item)
+        
+        iname = str(item_copy.get('ItemName', '')).strip()
+        desc = str(item_copy.get('Description', '')).strip()
+        rem = str(item_copy.get('Remarks', '')).strip()
+        
+        if iname.lower() in ['nan', 'none', 'null', '<na>']: iname = ""
+        if desc.lower() in ['nan', 'none', 'null', '<na>']: desc = ""
+        if rem.lower() in ['nan', 'none', 'null', '<na>']: rem = ""
+        
+        item_copy['ItemName'] = iname
+        item_copy['Description'] = desc
+        item_copy['Remarks'] = rem
+        
+        u_p = item_copy.get('UnitPrice', 0)
+        try:
+            u_p_val = float(str(u_p).replace(',', '').strip()) if str(u_p).strip() else 0.0
+        except (ValueError, TypeError):
+            u_p_val = 0.0
+            
+        amt = item_copy.get('Amount', 0)
+        try:
+            amt_val = float(str(amt).replace(',', '').strip()) if str(amt).strip() else 0.0
+        except (ValueError, TypeError):
+            amt_val = 0.0
+            
+        item_copy['UnitPriceFormatted'] = f"{u_p_val:,.0f}" if u_p_val > 0 else ""
+        if amt_val > 0:
+            item_copy['AmountFormatted'] = f"{amt_val:,.0f}"
+        elif amt_val == 0 and u_p_val > 0:
+            item_copy['AmountFormatted'] = "0"
+        else:
+            item_copy['AmountFormatted'] = ""
+            
+        formatted_items.append(item_copy)
+    return formatted_items
 
 if 'bg_task' not in st.session_state:
     st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
@@ -303,7 +345,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         mode_label = "Thinking(사고)" if ai_mode == "thinking" else "Flash(고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
         
-        # ⭐ 100% 범용성(구조 중심) 추출 규칙 적용
         prompt = f"""
         Extract document details into JSON format matching the fixed header fields and item list.
         
@@ -575,11 +616,14 @@ if menu == "서류 통합 생성":
             st.session_state['doc_items'] = clean_df(edited_df)
             save_history(ship_name, to_name, attn_name)
 
+            # 포맷팅 사전 완료 후 PDF 컨텍스트 생성
+            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
+
             ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "currency": currency or "KRW",
-                "items": clean_df(edited_df).to_dict("records"), "bottom_remarks": bottom_remarks
+                "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
             }
             pdf = generate_pdf(ctx)
             file_n = f"{doc_type}_{our_ref or your_ref}.pdf"
