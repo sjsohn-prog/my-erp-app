@@ -295,11 +295,57 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         mode_label = "Thinking(사고)" if ai_mode == "thinking" else "Flash(고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
         
+        # ⭐ 복구된 완벽한 AI 데이터 구조 프롬프트
         prompt = f"""
-        Extract document details to match the required fixed header fields:
-        FIXED HEADER FIELDS: "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name".
-        ITEM LIST RULES: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
-        Extract details into valid JSON matching this structure exactly. Return ONLY raw JSON.
+        Extract document details to match the required fixed header fields and item list.
+        
+        FIXED HEADER FIELDS:
+        1. "to_name": To (Client / Company Name)
+        2. "attn_name": Attention (Person / Dept)
+        3. "project_title": Project Title / Subject
+        4. "validity": Validity e.g. "By Aug 21, 2026"
+        5. "flag_class": Flag / Class e.g. "HONG KONG / NK"
+        6. "our_ref": Our Ref. No.
+        7. "date_str": Date (YYYY-MM-DD)
+        8. "pic": PIC (Person In Charge)
+        9. "your_ref": Your Ref. No.
+        10. "ship_name": Ship's Name
+        
+        ITEM LIST RULES:
+        - "PartNo": Part No
+        - "ItemName": Main item name
+        - "Description": Detailed description (Type, Model, Specs)
+        - "Qty": Quantity (Number)
+        - "UnitPrice": Price per unit (Number)
+        - "Amount": Total amount for item (Qty * UnitPrice) (Number)
+        - "Remarks": Inline remarks
+        
+        Extract details into valid JSON EXACTLY matching this structure:
+        {{
+            "to_name": "Company Name",
+            "attn_name": "Contact Person",
+            "project_title": "Project Title",
+            "validity": "Validity",
+            "flag_class": "Flag / Class",
+            "our_ref": "Our Ref. No.",
+            "date_str": "YYYY-MM-DD",
+            "pic": "PIC Name",
+            "your_ref": "Your Ref. No.",
+            "ship_name": "Ship Name",
+            "currency": "KRW/USD/EUR",
+            "items": [
+                {{
+                    "PartNo": "", 
+                    "ItemName": "", 
+                    "Description": "", 
+                    "Qty": 1, 
+                    "UnitPrice": 0.0, 
+                    "Amount": 0.0, 
+                    "Remarks": ""
+                }}
+            ]
+        }}
+        Return ONLY raw JSON.
         """
         content = Image.open(io.BytesIO(file_bytes)) if file_type in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
         ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
@@ -544,7 +590,7 @@ if menu == "서류 통합 생성":
         show_pdf_preview(st.session_state['last_pdf'])
 
 # ==========================================
-# 7. 서류 관리대장 ~ 기타 메뉴 생략 (이전과 동일하게 작동)
+# 7. 서류 관리대장 ~ 기타 메뉴
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
@@ -557,11 +603,59 @@ elif menu == "서류 관리대장":
 
 elif menu == "마스터 DB 관리":
     db = pd.read_csv(DB_FILE)
+    
+    if task['status'] == 'completed' and task['type'] == 'db_parse':
+        st.session_state['temp_db_upload'] = task['result']
+        st.session_state['bg_task']['status'] = 'idle'
+        st.success("🎉 시트 AI 파싱 완료")
+
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🤖 AI 단가표 수집기</div>', unsafe_allow_html=True)
+    
+    ai_mode_choice_db = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running, key="db_ai_mode")
+    selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db else "flash"
+    uploaded_db_file = st.file_uploader("단가표 파일 업로드", type=["xlsx", "csv"], disabled=is_running)
+    
+    if uploaded_db_file:
+        sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
+        parse_mode = st.radio("파싱 모드", ["📌 특정 시트 선택", "🚀 전체 시트 파싱"], horizontal=True, disabled=is_running)
+        if parse_mode == "📌 특정 시트 선택":
+            selected_sheet = st.selectbox("시트 선택", sheet_names, disabled=is_running)
+            if st.button("✨ 분석", disabled=is_running):
+                st.session_state['bg_task']['type'] = 'db_parse'
+                start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
+                st.rerun()
+        else:
+            if st.button("🚀 전체 파싱", disabled=is_running):
+                st.session_state['bg_task']['type'] = 'db_parse'
+                start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
+                st.rerun()
+
+    if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
+        st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
+        if st.button("✅ DB 최종 저장", disabled=is_running):
+            updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
+            updated_db.to_csv(DB_FILE, index=False)
+            del st.session_state['temp_db_upload']
+            st.success("저장 완료")
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📊 DB 관리</div>', unsafe_allow_html=True)
     edited_db = st.data_editor(db, num_rows="dynamic", use_container_width=True)
     if st.button("💾 DB 수정사항 저장"):
         edited_db.to_csv(DB_FILE, index=False)
         st.success("저장되었습니다.")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+    with st.expander("🚨 DB 초기화"):
+        pwd_input = st.text_input("비밀번호 입력", type="password", key="reset_pwd")
+        if st.button("🔥 초기화") and pwd_input == ADMIN_PASSWORD:
+            pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
+            st.success("초기화됨")
+            st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
