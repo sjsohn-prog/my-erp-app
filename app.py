@@ -9,6 +9,7 @@ import re
 import time
 import io
 import threading
+import subprocess
 from datetime import datetime
 import google.generativeai as genai
 from PIL import Image
@@ -21,7 +22,7 @@ ADMIN_PASSWORD = "admin1234"  # DB 초기화용 비밀번호
 DEFAULT_GEMINI_KEY = ""       # API 키 입력 시 영구 적용 (Secrets 사용 시 빈칸 유지)
 
 # ==========================================
-# 1. 페이지 설정 & 고대비 CSS (Light/Dark 적응형)
+# 1. 페이지 설정 & 고대비 CSS
 # ==========================================
 st.set_page_config(page_title="ONESOLUTION Enterprise ERP", layout="wide", page_icon="🚢")
 
@@ -90,6 +91,16 @@ DB_FILE = "master_db.csv"
 HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
+
+# Playwright 설치 보장 함수
+@st.cache_resource
+def install_playwright_browser():
+    try:
+        subprocess.run(["playwright", "install", "chromium"], check=False)
+    except Exception:
+        pass
+
+install_playwright_browser()
 
 if 'bg_task' not in st.session_state:
     st.session_state['bg_task'] = {
@@ -175,7 +186,6 @@ def safe_merge_db(existing_db, new_data_df):
     final_db = combined.drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
     return final_db
 
-# 고정 양식 필드에 일치하는 세션 초기화
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {
         "to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "",
@@ -188,13 +198,24 @@ if 'doc_items' not in st.session_state:
         "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Remarks": ""
     }])
 
+# ⭐ 수정된 PDF 생성 함수 (클라우드 리눅스 컨테이너 안전 옵션 추가)
 def generate_pdf(template_name, context):
     logo_path = os.path.abspath("logo.png")
     context["logo_base64"] = base64.b64encode(open(logo_path, "rb").read()).decode('utf-8') if os.path.exists(logo_path) else None
     html_out = Environment(loader=FileSystemLoader("templates")).get_template(template_name).render(context)
     with open("temp.html", "w", encoding="utf-8") as f: f.write(html_out)
+    
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-zygote'
+            ]
+        )
         page = browser.new_page()
         page.goto(f"file://{os.path.abspath('temp.html')}")
         pdf_bytes = page.pdf(format="A4", print_background=True, margin={"top":"10mm","bottom":"10mm","left":"10mm","right":"10mm"})
@@ -210,7 +231,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
 # ==========================================
-# 3. AI 파싱 엔진 (사진과 동일한 헤더 매핑)
+# 3. AI 파싱 엔진
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key: raise Exception("Gemini API Key가 누락되었습니다.")
@@ -276,7 +297,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         ITEM LIST RULES:
         - "PartNo": Part No
         - "ItemName": Main item name
-        - "Description": Detailed description (Type, Model, Specs, multi-line details)
+        - "Description": Detailed description (Type, Model, Specs)
         - "Qty": Quantity
         - "UnitPrice": Price per unit
         - "Remarks": Inline remarks
@@ -467,7 +488,6 @@ if menu == "서류 통합 생성":
 
     history = load_history()
 
-    # 사진과 100% 동일한 10개 고정 헤더 영역
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
     st.markdown(f'<div class="section-title">📌 {doc_type} 고정 헤더 정보 (Fixed Header)</div>', unsafe_allow_html=True)
     
@@ -536,7 +556,6 @@ if menu == "서류 통합 생성":
                 else:
                     st.info("검색된 자재 이력이 없습니다.")
 
-    # 컬럼 구성 (단가 및 수량 천 단위 콤마 포맷팅 & Description/Remarks 짤림 방지 라지 컬럼)
     item_name_list = db["ItemName"].dropna().unique().tolist() if not db.empty and "ItemName" in db.columns else []
     column_config = {
         "ItemName": st.column_config.SelectboxColumn("Item Name (품목명)", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
@@ -571,7 +590,6 @@ if menu == "서류 통합 생성":
     else:
         total_val = 0.0
 
-    # 품목 하단 수기 입력 Remarks & Deviations 인풋 칸
     st.markdown('<div class="section-title" style="margin-top:20px;">📝 Remarks & Deviations (하단 서류 특기사항 - 수기 입력)</div>', unsafe_allow_html=True)
     bottom_remarks = st.text_area("하단 비고란 (PDF 서류 하단 [Remarks & Deviations] 영역에 직접 반영됩니다)", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=100)
 
