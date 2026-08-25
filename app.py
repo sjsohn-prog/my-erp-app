@@ -85,7 +85,29 @@ custom_css = """
     .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
     .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
-    .stButton > button { width: 100%; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; color: #FFFFFF !important; font-weight: 700 !important; border: none !important; padding: 8px 16px !important; border-radius: 8px !important; font-size: 0.95rem !important; }
+    
+    /* 일반 버튼 및 구글 로그인 버튼 전용 스타일 */
+    .stButton > button, .google-btn { 
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important; 
+        background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
+        color: #FFFFFF !important; 
+        font-weight: 700 !important; 
+        border: none !important; 
+        padding: 8px 16px !important; 
+        border-radius: 8px !important; 
+        font-size: 0.95rem !important; 
+        text-decoration: none !important;
+        box-sizing: border-border-box !important;
+        height: 42px !important;
+        margin-bottom: 12px !important;
+    }
+    .google-btn:hover {
+        opacity: 0.9 !important;
+        color: #FFFFFF !important;
+    }
     .stButton > button:disabled { background: #64748B !important; color: #F1F5F9 !important; cursor: not-allowed !important; }
     .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 12px 16px; border-radius: 10px; text-align: right; font-size: 1.15rem; font-weight: 800; color: #0284C7; margin-top: 10px; }
     .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
@@ -126,7 +148,7 @@ if "code" in query_params and not st.session_state['authenticated']:
             st.query_params.clear()
             st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 테스트 로그인 버튼과 동일한 디자인으로 적용된 구글 로그인 버튼
+# ⭐ 테스트 로그인 버튼과 완전히 똑같은 규격/디자인의 구글 로그인 버튼
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -140,25 +162,7 @@ if not st.session_state['authenticated']:
             
             if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
                 auth_url = get_google_auth_url()
-                google_btn_html = f"""
-                <a href="{auth_url}" target="_self" style="
-                    display: block; 
-                    width: 100%; 
-                    background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
-                    color: #FFFFFF !important; 
-                    font-weight: 700 !important; 
-                    border: none !important; 
-                    padding: 8px 16px !important; 
-                    border-radius: 8px !important; 
-                    font-size: 0.95rem !important; 
-                    text-decoration: none !important; 
-                    text-align: center; 
-                    box-sizing: border-box;
-                    margin-bottom: 12px;
-                    line-height: 1.6;
-                ">🔑 Google 계정으로 로그인</a>
-                """
-                st.markdown(google_btn_html, unsafe_allow_html=True)
+                st.markdown(f'<a href="{auth_url}" target="_self" class="google-btn">🔑 Google 계정으로 로그인</a>', unsafe_allow_html=True)
 
             if st.button("🚀 테스트 로그인"):
                 st.session_state['authenticated'] = True
