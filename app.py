@@ -92,10 +92,6 @@ custom_css = """
     .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
-    
-    /* 깔끔한 구글 로그인 버튼 전용 스타일 */
-    .google-btn-wrapper { text-align: center; margin-top: 15px; }
-    .google-btn { display: inline-block; width: 100%; background-color: #4285F4; color: white !important; font-weight: bold; padding: 12px; border-radius: 8px; text-decoration: none; text-align: center; font-size: 0.95rem; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -120,30 +116,31 @@ if "code" in query_params and not st.session_state['authenticated']:
     except Exception as e:
         st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 깔끔한 중앙 정렬 로그인 UI (유령 입력창 완전히 제거)
+# ⭐ 단일 HTML 블록으로 결합하여 유령 테두리 박스 완전 제거
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
     _, center_col, _ = st.columns([1, 1.8, 1])
     
     with center_col:
-        with st.container():
-            st.markdown('<div class="erp-card" style="text-align: center; padding: 30px 24px;">', unsafe_allow_html=True)
-            st.markdown("<h2>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:0.9rem; color: #94A3B8; margin-bottom: 20px;'>사내 임직원 전용 서류 관리 시스템입니다.<br>구글 계정으로 로그인해 주세요.</p>", unsafe_allow_html=True)
-            
-            if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-                auth_url = get_google_auth_url()
-                st.markdown(f'<div class="google-btn-wrapper"><a href="{auth_url}" class="google-btn">🔑 Google 계정으로 로그인</a></div>', unsafe_allow_html=True)
-            else:
-                st.warning("⚠️ 구글 Client ID가 비어있습니다. (Secrets 설정 필요)")
-                st.info("임시 테스트 모드로 진입하실 수 있습니다.")
-                test_email = st.text_input("사내 이메일 입력", value=f"user@{ALLOWED_DOMAIN}")
-                if st.button("🚀 임시 로그인 진입"):
-                    st.session_state['authenticated'] = True
-                    st.session_state['user_email'] = test_email
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+            auth_url = get_google_auth_url()
+            login_card_html = f"""
+            <div style="background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 32px 24px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                <h2 style="margin-top:0; font-size: 1.6rem; color: var(--text-color);">🚢 ONE - ERP</h2>
+                <p style="font-size:0.9rem; color: #94A3B8; margin-bottom: 24px; line-height: 1.5;">사내 임직원 전용 서류 관리 시스템입니다.<br>구글 계정으로 로그인해 주세요.</p>
+                <a href="{auth_url}" target="_self" style="display: block; width: 100%; background-color: #4285F4; color: #ffffff !important; font-weight: bold; padding: 12px 0; border-radius: 8px; text-decoration: none; text-align: center; font-size: 0.95rem; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">🔑 Google 계정으로 로그인</a>
+            </div>
+            """
+            st.markdown(login_card_html, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ 구글 Client ID가 비어있습니다. (Secrets 설정 필요)")
+            st.info("임시 테스트 모드로 진입하실 수 있습니다.")
+            test_email = st.text_input("사내 이메일 입력", value=f"user@{ALLOWED_DOMAIN}")
+            if st.button("🚀 임시 로그인 진입"):
+                st.session_state['authenticated'] = True
+                st.session_state['user_email'] = test_email
+                st.rerun()
     st.stop()
 
 # ==========================================
@@ -542,7 +539,7 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by WeasyPrint & Gemini</span></div>""", unsafe_allow_html=True)
+st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
 
