@@ -4,3 +4,4 @@ jinja2
 playwright
 google-generativeai
 pillow
+xhtml2pdf
