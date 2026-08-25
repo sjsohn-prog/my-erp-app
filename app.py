@@ -21,7 +21,6 @@ DEFAULT_GEMINI_KEY = ""
 
 FLAG_OPTIONS = ["선택 안함", "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
 
-# ⭐ 중복 없이 완벽히 정렬된 선급(Class) 드롭다운 목록
 CLASS_OPTIONS = [
     "선택 안함", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
@@ -51,7 +50,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (인쇄 여백 최소화 5mm)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -272,7 +271,7 @@ if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
 
 if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
 def generate_pdf(context):
     from weasyprint import HTML
@@ -436,7 +435,7 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 5. UI 및 사이드바 (ONE - ERP 로 명칭 변경)
+# 5. UI 및 사이드바
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by WeasyPrint & Gemini</span></div>""", unsafe_allow_html=True)
@@ -471,9 +470,11 @@ if menu == "서류 통합 생성":
         parsed_items = ai_data.get("items", [])
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
         if not items_df.empty:
-            items_df["No"] = range(1, len(items_df) + 1)
             for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
                 if req_col not in items_df.columns: items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else (1 if req_col == "Qty" else 0.0)
+
+            # DB 순서에 맞춘 UI 열 순서 정렬
+            items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
             for idx, row in items_df.iterrows():
                 pno, iname, desc = str(row.get('PartNo', '')), str(row.get('ItemName', '')), str(row.get('Description', ''))
@@ -508,7 +509,7 @@ if menu == "서류 통합 생성":
 
         if st.button("🔄 서류 입력 초기화", disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
             st.rerun()
 
         history = load_history()
@@ -551,9 +552,13 @@ if menu == "서류 통합 생성":
 
         st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
         
+        # PartNo 및 ItemName 드롭다운 목록 추출
+        part_no_list = [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else []
         item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
+
+        # ⭐ DB 구조에 맞춘 UI 열 설정 (PartNo -> ItemName -> Description -> Qty -> UnitPrice -> Amount -> Remarks)
         column_config = {
-            "PartNo": st.column_config.TextColumn("PartNo", width="small"),
+            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width="small") if part_no_list else st.column_config.TextColumn("PartNo", width="small"),
             "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width="medium") if item_name_list else st.column_config.TextColumn("Item Name", width="medium"),
             "Description": st.column_config.TextColumn("Description", width="large"),
             "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1),
@@ -563,8 +568,12 @@ if menu == "서류 통합 생성":
         }
 
         df_current = clean_df(st.session_state['doc_items'].copy())
-        for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
+        
+        # 열 순서 보장
+        cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+        for c in cols_order:
             if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
+        df_current = df_current[cols_order]
 
         for i, row in df_current.iterrows():
             if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
@@ -572,15 +581,28 @@ if menu == "서류 통합 생성":
 
         edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
+        # ⭐ PartNo / ItemName 양방향 자동 연동 로직
         for i, row in edited_df.iterrows():
-            if pd.notna(row.get('ItemName')) and row['ItemName'] in db['ItemName'].values:
-                match_row = db[db['ItemName'] == row['ItemName']].iloc[0]
-                if not row.get('PartNo') or pd.isna(row.get('PartNo')): edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
-                if not row.get('Description') or pd.isna(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
-                if row.get('UnitPrice', 0.0) == 0.0 or pd.isna(row.get('UnitPrice')):
+            pno = clean_str(row.get('PartNo'))
+            iname = clean_str(row.get('ItemName'))
+            
+            match_row = None
+            if pno and not db.empty and 'PartNo' in db.columns and pno in db['PartNo'].values:
+                match_row = db[db['PartNo'] == pno].iloc[0]
+            elif iname and not db.empty and 'ItemName' in db.columns and iname in db['ItemName'].values:
+                match_row = db[db['ItemName'] == iname].iloc[0]
+                
+            if match_row is not None:
+                if not pno: edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
+                if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
+                if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
+                
+                u_p_curr = float(row.get('UnitPrice', 0.0))
+                if u_p_curr == 0.0:
                     u_p = float(match_row.get('UnitPrice', 0.0))
                     edited_df.at[i, 'UnitPrice'] = u_p
-                    if edited_df.at[i, 'Amount'] == 0.0: edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
+                    if float(edited_df.at[i, 'Amount']) == 0.0:
+                        edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
 
         if "Amount" in edited_df.columns:
             total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
@@ -696,13 +718,19 @@ elif menu == "마스터 DB 관리":
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
+    # ⭐ 발행 이력 조회 메뉴 에러(NameError) 수정 완료
     files = [f for f in os.listdir("output") if f.endswith('.pdf')]
     if files:
         selected_file = st.selectbox("문서 선택", files)
         if selected_file:
             pdf_data = open(os.path.join("output", selected_file), "rb").read()
             st.download_button("💾 다운로드", pdf_data, file_name=selected_file, mime="application/pdf")
-            show_pdf_preview(pdf_data)
+            pdf_imgs = render_pdf_images(pdf_data)
+            if pdf_imgs:
+                for i, img_b in enumerate(pdf_imgs):
+                    st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
+    else:
+        st.info("저장된 PDF 문서가 없습니다.")
 
 if is_running:
     time.sleep(1.0)
