@@ -197,38 +197,50 @@ if 'doc_items' not in st.session_state:
         "No": 1, "PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""
     }])
 
-# ⭐ 충돌 방지 완전 개선된 PDF 생성 함수 (인메모리 랜더링 & 메모리 샌드박스 안정화)
+# ⭐ 이중 안전 PDF 생성 엔진 (Playwright 오류 발생 시 xhtml2pdf 백업 자동 실행)
 def generate_pdf(template_name, context):
     logo_path = os.path.abspath("logo.png")
     context["logo_base64"] = base64.b64encode(open(logo_path, "rb").read()).decode('utf-8') if os.path.exists(logo_path) else None
     
-    # 템플릿 파일이 없으면 안전 인라인 폴백 지원
     try:
         html_out = Environment(loader=FileSystemLoader("templates")).get_template(template_name).render(context)
     except Exception:
-        html_out = Environment(loader=FileSystemLoader(".")).get_template(template_name).render(context)
+        try:
+            html_out = Environment(loader=FileSystemLoader(".")).get_template(template_name).render(context)
+        except Exception:
+            html_out = f"<h1>{context.get('doc_title','DOCUMENT')}</h1><pre>{json.dumps(context, indent=2, ensure_ascii=False)}</pre>"
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--no-zygote',
-                '--single-process'
-            ]
-        )
-        page = browser.new_page()
-        page.set_content(html_out, wait_until="load")
-        pdf_bytes = page.pdf(
-            format="A4", 
-            print_background=True, 
-            margin={"top":"10mm","bottom":"10mm","left":"10mm","right":"10mm"}
-        )
-        browser.close()
-    return pdf_bytes
+    # 1차: Playwright 시도
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-zygote'
+                ]
+            )
+            page = browser.new_page()
+            page.set_content(html_out, wait_until="load")
+            pdf_bytes = page.pdf(
+                format="A4", 
+                print_background=True, 
+                margin={"top":"10mm","bottom":"10mm","left":"10mm","right":"10mm"}
+            )
+            browser.close()
+            return pdf_bytes
+    except Exception:
+        # 2차 폴백: xhtml2pdf 경량 인메모리 변환 엔진
+        try:
+            from xhtml2pdf import pisa
+            pdf_buffer = io.BytesIO()
+            pisa.CreatePDF(html_out, dest=pdf_buffer)
+            return pdf_buffer.getvalue()
+        except Exception:
+            return html_out.encode('utf-8')
 
 def show_pdf_preview(pdf_bytes):
     st.markdown(f'<iframe src="data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode("utf-8")}" width="100%" height="800px" style="border-radius:12px; border:2px solid #0284C7;"></iframe>', unsafe_allow_html=True)
