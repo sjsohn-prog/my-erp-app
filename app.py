@@ -544,7 +544,7 @@ if menu == "서류 통합 생성":
             auto_fc = f"{flag_part} / {class_part}".strip(" /")
         else: auto_fc = curr_fc
 
-        flag_class = st.text_input("Flag / Class (직접 수정 가능)", value=auto_fc)
+        flag_class = st.text_input("Flag / Class", value=auto_fc)
 
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
         currency = st.selectbox("Currency (통화)", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
