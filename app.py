@@ -18,7 +18,7 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 # 0. 관리자 보안 및 API 키 영구 고정 설정
 # ==========================================
 ADMIN_PASSWORD = "admin1234"  # DB 초기화용 비밀번호
-DEFAULT_GEMINI_KEY = ""       # API 키 입력 시 영구 적용
+DEFAULT_GEMINI_KEY = ""       # API 키 입력 시 영구 적용 (Secrets 사용 시 빈칸 유지)
 
 # ==========================================
 # 1. 페이지 설정 & 고대비 CSS (Light/Dark 적응형)
@@ -102,7 +102,16 @@ if 'bg_task' not in st.session_state:
 
 is_running = (st.session_state['bg_task']['status'] == 'running')
 
+# ⭐ Secrets 연동 지원 키 로드 함수
 def load_saved_key():
+    # 1. Streamlit Secrets 우선 조회
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+        
+    # 2. 기본값 및 로컬 파일 조회
     if DEFAULT_GEMINI_KEY.strip(): return DEFAULT_GEMINI_KEY.strip()
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "r", encoding="utf-8") as f:
@@ -167,10 +176,7 @@ def safe_merge_db(existing_db, new_data_df):
     has_item = combined['ItemName'].astype(str).str.strip() != ""
     has_desc = combined['Description'].astype(str).str.strip() != ""
     
-    # 셋 중 하나라도 데이터가 있는 행 보존
     combined = combined[has_pno | has_item | has_desc]
-    
-    # 중복 제거 (PartNo, ItemName, Description 복합 조합 기준)
     final_db = combined.drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
     return final_db
 
@@ -255,7 +261,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         mode_label = "Thinking(사고)" if ai_mode == "thinking" else "Flash(고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 {doc_type} 문서를 분석 중입니다...'
         
-        # 품목명(ItemName)과 상세설명(Description)을 철저히 분리하도록 가이드
         prompt = f"""
         Based on the uploaded document, extract details to GENERATE a new '{doc_type}'.
         
@@ -520,15 +525,12 @@ if menu == "서류 통합 생성":
         column_config["ItemName"] = st.column_config.SelectboxColumn("품목명 (DB 빠른 선택)", options=item_name_list)
 
     df_current = st.session_state['doc_items'].copy()
-    
-    # 필수 컬럼 구성 보장
     for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Remarks"]:
         if c not in df_current.columns:
             df_current[c] = "" if c not in ["Qty", "UnitPrice"] else (1 if c == "Qty" else 0.0)
             
     edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
 
-    # 품목명 드롭다운 바뀔 때 자동 매칭
     for i, row in edited_df.iterrows():
         if pd.notna(row.get('ItemName')) and row['ItemName'] in db['ItemName'].values:
             match_row = db[db['ItemName'] == row['ItemName']].iloc[0]
