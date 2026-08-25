@@ -152,11 +152,11 @@ if not st.session_state['authenticated']:
             else:
                 st.info("💡 Secrets 구글 인증 정보 미설정 상태")
 
-            st.markdown("<div style='text-align: center; font-size: 0.82rem; color: #64748B; margin: 12px 0 16px 0;'>── 또는 테스트 직통 로그인 ──</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; font-size: 0.82rem; color: #64748B; margin: 12px 0 16px 0;'></div>", unsafe_allow_html=True)
             
             # 2. 테스트 직통 진입 버튼
             test_email = st.text_input("접속 이메일", value=f"sjsohn@{ALLOWED_DOMAIN}")
-            if st.button("🚀 체험판 직통 진입"):
+            if st.button("🚀 테스트 로그인"):
                 st.session_state['authenticated'] = True
                 st.session_state['user_email'] = test_email
                 st.rerun()
