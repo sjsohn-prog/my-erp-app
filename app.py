@@ -116,18 +116,18 @@ if "code" in query_params and not st.session_state['authenticated']:
     except Exception as e:
         st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 로그인 및 테스트 직통 진입 통합 화면
+# ⭐ 군더더기 없는 테스트 로그인 전용 UI
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
-    _, center_col, _ = st.columns([1, 1.6, 1])
+    st.write("")
+    _, center_col, _ = st.columns([1, 1.5, 1])
     
     with center_col:
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; margin-top: 10px; margin-bottom: 4px; font-weight: 800;'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 20px;'>사내 임직원 전용 서류 관리 시스템</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 24px;'>사내 임직원 전용 서류 관리 시스템</p>", unsafe_allow_html=True)
             
-            # 1. 구글 OAuth 로그인 영역
             if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
                 auth_url = get_google_auth_url()
                 google_btn_html = f"""
@@ -145,20 +145,14 @@ if not st.session_state['authenticated']:
                     letter-spacing: 0.5px;
                     box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3); 
                     border: 1px solid #1557B0;
-                    margin-bottom: 16px;
+                    margin-bottom: 12px;
                 ">🔑 Google 계정으로 로그인</a>
                 """
                 st.markdown(google_btn_html, unsafe_allow_html=True)
-            else:
-                st.info("💡 Secrets 구글 인증 정보 미설정 상태")
 
-            st.markdown("<div style='text-align: center; font-size: 0.82rem; color: #64748B; margin: 12px 0 16px 0;'></div>", unsafe_allow_html=True)
-            
-            # 2. 테스트 직통 진입 버튼
-            test_email = st.text_input("접속 이메일", value=f"sjsohn@{ALLOWED_DOMAIN}")
             if st.button("🚀 테스트 로그인"):
                 st.session_state['authenticated'] = True
-                st.session_state['user_email'] = test_email
+                st.session_state['user_email'] = f"sjsohn@{ALLOWED_DOMAIN}"
                 st.rerun()
     st.stop()
 
@@ -558,7 +552,8 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by WeasyPrint & Gemini</span></div>""", unsafe_allow_html=True)
+# ⭐ 1. Powered by Gemini 3.6 수정 완료
+st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
 
@@ -673,14 +668,15 @@ if menu == "서류 통합 생성":
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
+        # ⭐ 2. ItemName 및 Description 컬럼 폭 핏하게 축소 설정
         column_config = {
-            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=75),
-            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=110),
-            "Description": st.column_config.TextColumn("Description", width=140),
+            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
+            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
+            "Description": st.column_config.TextColumn("Description", width=105),
             "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1, width=45),
             "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=70),
             "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=75),
-            "Remarks": st.column_config.TextColumn("Remarks", width=75),
+            "Remarks": st.column_config.TextColumn("Remarks", width=70),
         }
 
         df_current = clean_df(st.session_state['doc_items'].copy())
