@@ -40,7 +40,7 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. 구글 OAuth 로그인 필수 함수 선언 (NameError 방지)
+# 0-1. 구글 OAuth 로그인 필수 함수 선언
 # ==========================================
 def get_google_auth_url():
     params = {
@@ -52,7 +52,7 @@ def get_google_auth_url():
         "prompt": "select_account"
     }
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
-    
+
 def get_google_user_info(code):
     token_url = "https://oauth2.googleapis.com/token"
     data = urllib.parse.urlencode({
@@ -103,7 +103,7 @@ if 'authenticated' not in st.session_state:
 if 'processed_code' not in st.session_state:
     st.session_state['processed_code'] = None
 
-# ⭐ 일회성 구글 로그인 인증 코드 중복 처리 방지 로직 (403 방지)
+# OAuth 인증 중복 호출 방지 세션 로직
 query_params = st.query_params
 if "code" in query_params and not st.session_state['authenticated']:
     auth_code = query_params["code"]
@@ -126,7 +126,7 @@ if "code" in query_params and not st.session_state['authenticated']:
             st.query_params.clear()
             st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
 
-# ⭐ 로그인 화면 & 테스트 로그인 버튼
+# ⭐ 선명하고 선명한 버튼 스타일 적용된 로그인 카드
 if not st.session_state['authenticated']:
     st.write("")
     st.write("")
@@ -144,18 +144,20 @@ if not st.session_state['authenticated']:
                 <a href="{auth_url}" target="_self" style="
                     display: block; 
                     width: 100%; 
-                    background-color: #1A73E8; 
+                    background-color: #2563EB !important; 
                     color: #FFFFFF !important; 
-                    font-weight: 800; 
+                    font-weight: 800 !important; 
                     padding: 12px 0; 
                     border-radius: 8px; 
-                    text-decoration: none; 
+                    text-decoration: none !important; 
                     text-align: center; 
                     font-size: 0.98rem; 
                     letter-spacing: 0.5px;
-                    box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3); 
-                    border: 1px solid #1557B0;
+                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); 
+                    border: 1px solid #1D4ED8;
                     margin-bottom: 12px;
+                    opacity: 1.0 !important;
+                    filter: none !important;
                 ">🔑 Google 계정으로 로그인</a>
                 """
                 st.markdown(google_btn_html, unsafe_allow_html=True)
@@ -562,7 +564,6 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-# ⭐ Powered by Gemini 3.6 적용
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
@@ -678,7 +679,7 @@ if menu == "서류 통합 생성":
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
-        # ⭐ ItemName 및 Description 너비 축소
+        # ItemName 및 Description 폭 최적화
         column_config = {
             "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
             "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
