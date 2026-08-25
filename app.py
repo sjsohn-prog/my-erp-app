@@ -16,7 +16,7 @@ from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ==========================================
-# 0. 보안 비밀번호 설정 (관리자: admin0915 / DB저장: 0915)
+# 0. 보안 비밀번호 및 환경 설정
 # ==========================================
 ADMIN_PASSWORD = "admin0915"
 SAVE_PASSWORD = "0915"
@@ -41,7 +41,132 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. 구글 OAuth 로그인 필수 함수 선언
+# 0-1. i18n 다국어 사전 (KR / EN)
+# ==========================================
+TRANSLATIONS = {
+    "KR": {
+        "subtitle": "사내 임직원 전용 서류 관리 시스템",
+        "google_login": "🔑 Google 계정으로 로그인",
+        "test_login": "🚀 테스트 로그인",
+        "logout": "🚪 로그아웃",
+        "user_label": "👤 접속자:",
+        "sys_menu": "SYSTEM MENU",
+        "menu_gen": "서류 통합 생성",
+        "menu_ledger": "서류 관리대장",
+        "menu_db": "마스터 DB 관리",
+        "menu_history": "발행 이력 조회",
+        "doc_gen_title": "📄 스마트 서류 자동 생성 시스템",
+        "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.",
+        "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
+        "ai_mode_label": "AI 분석 엔진 선택",
+        "mode_flash": "⚡ 고속 Flash 모드",
+        "mode_thinking": "🧠 심층 Thinking (사고) 모드",
+        "upload_doc_label": "문서 업로드 (PDF, JPG, PNG)",
+        "btn_ai_parse": "✨ AI 문서 분석",
+        "btn_reset": "🔄 서류 입력 초기화",
+        "hdr_title": "📌 {doc_type} 헤더 입력",
+        "items_title": "📦 품목 상세 내역",
+        "remarks_title": "📝 Remarks & Deviations",
+        "reg_title": "📌 관리대장 및 DB 등록",
+        "pwd_save_label": "🔒 비밀번호",
+        "btn_register": "📥 관리대장 및 마스터 DB 등록",
+        "preview_title": "⚡ 실시간 PDF 문서 미리보기",
+        "btn_download_pdf": "💾 완성된 PDF 다운로드",
+        "ledger_title": "📊 서류 발행 관리대장 및 실시간 검색",
+        "filter_doc_type": "📋 서류 유형 필터",
+        "filter_ship": "🚢 선박명 필터",
+        "filter_user": "👤 작성자 필터",
+        "filter_keyword": "🔎 키워드 검색 (Ref, 수신처 등)",
+        "filter_keyword_ph": "검색어 입력...",
+        "total_records": "**총 `{count}` 건 조회됨** (전체 `{total}` 건 중)",
+        "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
+        "no_ledger": "관리대장에 등록된 서류 내역이 없습니다.",
+        "ai_db_title": "🤖 AI 단가표 수집기",
+        "upload_db_label": "단가표 파일 업로드",
+        "parse_mode": "파싱 모드",
+        "parse_mode_sheet": "📌 특정 시트 선택",
+        "parse_mode_all": "🚀 전체 시트 파싱",
+        "select_sheet": "시트 선택",
+        "btn_analyze": "✨ 분석",
+        "btn_parse_all": "🚀 전체 파싱",
+        "btn_final_db_save": "✅ DB 최종 저장",
+        "db_mgmt_title": "📊 DB 관리",
+        "btn_save_db": "💾 DB 수정사항 저장",
+        "db_reset_title": "🚨 DB 초기화",
+        "btn_reset": "🔥 초기화",
+        "pwd_admin_label": "관리자 비밀번호 입력",
+        "pwd_err": "❌ 비밀번호가 올바르지 않습니다.",
+        "reg_success": "🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {user})",
+        "all": "전체",
+        "pwd_ph": "비밀번호 입력..."
+    },
+    "EN": {
+        "subtitle": "In-house Document Management System",
+        "google_login": "🔑 Sign in with Google",
+        "test_login": "🚀 Test Login",
+        "logout": "🚪 Logout",
+        "user_label": "👤 User:",
+        "sys_menu": "SYSTEM MENU",
+        "menu_gen": "Document Generator",
+        "menu_ledger": "Document Ledger",
+        "menu_db": "Master DB Management",
+        "menu_history": "Issue History",
+        "doc_gen_title": "📄 Smart Document Generation System",
+        "doc_gen_desc": "Supports fixed template & Master DB linked generation based on AI document analysis.",
+        "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
+        "ai_mode_label": "Select AI Engine",
+        "mode_flash": "⚡ High-Speed Flash",
+        "mode_thinking": "🧠 Deep Thinking",
+        "upload_doc_label": "Upload Document (PDF, JPG, PNG)",
+        "btn_ai_parse": "✨ Analyze Document",
+        "btn_reset": "🔄 Reset Form",
+        "hdr_title": "📌 {doc_type} Header Details",
+        "items_title": "📦 Line Item Details",
+        "remarks_title": "📝 Remarks & Deviations",
+        "reg_title": "📌 Save to Ledger & Master DB",
+        "pwd_save_label": "🔒 Password",
+        "btn_register": "📥 Save to Ledger & Master DB",
+        "preview_title": "⚡ Live PDF Document Preview",
+        "btn_download_pdf": "💾 Download PDF Document",
+        "ledger_title": "📊 Document Ledger & Real-time Search",
+        "filter_doc_type": "📋 Document Type Filter",
+        "filter_ship": "🚢 Vessel Filter",
+        "filter_user": "👤 Creator Filter",
+        "filter_keyword": "🔎 Search Keyword (Ref, Client, etc.)",
+        "filter_keyword_ph": "Type keyword...",
+        "total_records": "**Total `{count}` record(s) found** (Out of `{total}`)",
+        "btn_download_csv": "📥 Download Filtered Excel (CSV)",
+        "no_ledger": "No document records found in the ledger.",
+        "ai_db_title": "🤖 AI Price List Extractor",
+        "upload_db_label": "Upload Price List File",
+        "parse_mode": "Parsing Mode",
+        "parse_mode_sheet": "📌 Select Specific Sheet",
+        "parse_mode_all": "🚀 Parse All Sheets",
+        "select_sheet": "Select Sheet",
+        "btn_analyze": "✨ Analyze",
+        "btn_parse_all": "🚀 Parse All",
+        "btn_final_db_save": "✅ Save to Master DB",
+        "db_mgmt_title": "📊 DB Management",
+        "btn_save_db": "💾 Save DB Changes",
+        "db_reset_title": "🚨 Reset Master DB",
+        "btn_reset": "🔥 Reset DB",
+        "pwd_admin_label": "Enter Admin Password",
+        "pwd_err": "❌ Incorrect password.",
+        "reg_success": "🎉 Saved to Document Ledger & Master DB (Creator: {user})",
+        "all": "All",
+        "pwd_ph": "Enter password..."
+    }
+}
+
+def t(key, **kwargs):
+    lang = st.session_state.get('lang', 'KR')
+    text = TRANSLATIONS.get(lang, TRANSLATIONS['KR']).get(key, key)
+    if kwargs:
+        return text.format(**kwargs)
+    return text
+
+# ==========================================
+# 0-2. 구글 OAuth 로그인 필수 함수
 # ==========================================
 def get_google_auth_url():
     params = {
@@ -79,6 +204,9 @@ def get_google_user_info(code):
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
+if 'lang' not in st.session_state:
+    st.session_state['lang'] = 'KR'
+
 custom_css = """
 <style>
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
@@ -107,7 +235,6 @@ custom_css = """
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
     }
 
-    /* 일반 버튼 및 구글 로그인 버튼 전용 스타일 */
     .stButton > button, .google-btn { 
         display: inline-flex !important;
         align-items: center !important;
@@ -125,10 +252,7 @@ custom_css = """
         height: 42px !important;
         margin-bottom: 12px !important;
     }
-    .google-btn:hover {
-        opacity: 0.9 !important;
-        color: #FFFFFF !important;
-    }
+    .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
     .stButton > button:disabled { background: #64748B !important; color: #F1F5F9 !important; cursor: not-allowed !important; }
     .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 12px 16px; border-radius: 10px; text-align: right; font-size: 1.15rem; font-weight: 800; color: #0284C7; margin-top: 10px; }
     .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
@@ -138,6 +262,14 @@ custom_css = """
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
+
+# ⭐ 상단 우측 언어 토글 스위치 (KR | EN)
+top_l_col, top_r_col = st.columns([8.5, 1.5])
+with top_r_col:
+    selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed")
+    if selected_lang != st.session_state['lang']:
+        st.session_state['lang'] = selected_lang
+        st.rerun()
 
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
@@ -158,7 +290,7 @@ if "code" in query_params and not st.session_state['authenticated']:
             user_info = get_google_user_info(auth_code)
             email = user_info.get("email", "")
             if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
-                st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
+                st.error(f"❌ Access Denied: Only @{ALLOWED_DOMAIN} accounts are allowed. (Attempted: {email})")
                 st.query_params.clear()
             else:
                 st.session_state['authenticated'] = True
@@ -167,7 +299,7 @@ if "code" in query_params and not st.session_state['authenticated']:
                 st.rerun()
         except Exception as e:
             st.query_params.clear()
-            st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
+            st.error(f"Google Auth Error: {e}")
 
 # 로그인 화면
 if not st.session_state['authenticated']:
@@ -179,20 +311,20 @@ if not st.session_state['authenticated']:
     with center_col:
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; margin-top: 10px; margin-bottom: 4px; font-weight: 800;'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 24px;'>사내 임직원 전용 서류 관리 시스템</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 24px;'>{t('subtitle')}</p>", unsafe_allow_html=True)
             
             if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
                 auth_url = get_google_auth_url()
-                st.markdown(f'<a href="{auth_url}" target="_self" class="google-btn">🔑 Google 계정으로 로그인</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{auth_url}" target="_self" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
 
-            if st.button("🚀 테스트 로그인"):
+            if st.button(t("test_login")):
                 st.session_state['authenticated'] = True
                 st.session_state['user_email'] = f"sjsohn@{ALLOWED_DOMAIN}"
                 st.rerun()
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (Noto Sans KR 적용)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -200,8 +332,9 @@ INLINE_HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     @page { size: A4; margin: 5mm 5mm; }
-    body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
+    body { font-family: 'Noto Sans KR', 'Malgun Gothic', 'Nanum Gothic', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
     .title { text-align: center; font-size: 20pt; font-weight: bold; text-decoration: underline; margin-bottom: 14px; text-transform: uppercase; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
     th, td { border: 1.5px solid #000; padding: 4px 6px; vertical-align: middle; }
@@ -578,32 +711,39 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 5. UI 및 사이드바
+# 5. UI 및 사이드바 (다국어 반영)
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
-    st.sidebar.markdown(f"👤 **접속자:** `{st.session_state['user_email']}`")
-    if st.sidebar.button("🚪 로그아웃"):
+    st.sidebar.markdown(f"{t('user_label')} `{st.session_state['user_email']}`")
+    if st.sidebar.button(t("logout")):
         st.session_state['authenticated'] = False
         st.session_state['user_email'] = ""
         st.rerun()
 
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
-menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
+menu_options = [t("menu_gen"), t("menu_ledger"), t("menu_db"), t("menu_history")]
+menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
+
+# 매핑
+if menu_selection == t("menu_gen"): menu = "서류 통합 생성"
+elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
+elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
+else: menu = "발행 이력 조회"
 
 task = st.session_state['bg_task']
 if is_running:
     st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
-elif task['status'] == 'error': st.error(f"❌ AI 작업 오류: {task['error_msg']}")
+elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
 # 6. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
-    doc_type = st.sidebar.selectbox("📋 서류 유형 선택", ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
+    doc_type = st.sidebar.selectbox("📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), ["Quotation", "Invoice", "Delivery Note", "Purchase Order", "Credit Note", "Service Report"])
 
-    st.markdown(f"""<div class="main-header"><h1>📄 스마트 서류 자동 생성 시스템 ({doc_type})</h1><p>AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.</p></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
     db = clean_df(pd.read_csv(DB_FILE))
 
@@ -642,28 +782,28 @@ if menu == "서류 통합 생성":
                     items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
             st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
-        st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
+        st.success("✅ AI Analysis Complete.")
 
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
-        with st.expander("⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽", expanded=False):
-            ai_mode_choice = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running)
-            selected_mode = "thinking" if "Thinking" in ai_mode_choice else "flash"
-            uploaded_doc = st.file_uploader("문서 업로드 (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
-            if uploaded_doc and st.button("✨ AI 문서 분석", disabled=is_running):
+        with st.expander(t("ai_expander_title"), expanded=False):
+            ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
+            selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
+            uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
+            if uploaded_doc and st.button(t("btn_ai_parse"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'doc_parse'
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
                 st.rerun()
 
-        if st.button("🔄 서류 입력 초기화", disabled=is_running):
+        if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
             st.rerun()
 
         history = load_history()
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-title">📌 {doc_type} 헤더 입력</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
         
         sel_to = st.selectbox("To", options=[""] + history["to_list"])
         to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
@@ -698,7 +838,7 @@ if menu == "서류 통합 생성":
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
         currency = st.selectbox("Currency", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
 
-        st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("items_title")}</div>', unsafe_allow_html=True)
         
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
@@ -753,16 +893,16 @@ if menu == "서류 통합 생성":
             st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
         else: total_val = 0.0
 
-        st.markdown('<div class="section-title" style="margin-top:16px;">📝 Remarks & Deviations</div>', unsafe_allow_html=True)
-        bottom_remarks = st.text_area("하단 비고란", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80)
+        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
+        bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
         
-        # ⭐ DB 및 대장 저장 비밀번호 (0915 적용)
-        st.markdown('<div class="section-title" style="margin-top:16px;">📌 관리대장 및 DB 등록</div>', unsafe_allow_html=True)
-        reg_pwd = st.text_input("🔒 비밀번호 (0915)", type="password", key="doc_reg_pwd")
+        # 저장 비밀번호 (0915 검증)
+        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("reg_title")}</div>', unsafe_allow_html=True)
+        reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
         
-        if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
+        if st.button(t("btn_register"), type="secondary", disabled=is_running):
             if reg_pwd != SAVE_PASSWORD:
-                st.error("❌ 비밀번호가 올바르지 않습니다.")
+                st.error(t("pwd_err"))
             else:
                 current_user = st.session_state.get('user_email', 'Unknown')
                 st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
@@ -773,12 +913,12 @@ if menu == "서류 통합 생성":
                 
                 save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
                 save_history(ship_name, to_name, attn_name)
-                st.success(f"🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {current_user})")
+                st.success(t("reg_success", user=current_user))
         st.markdown('</div>', unsafe_allow_html=True)
 
     with right_col:
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">⚡ 실시간 PDF 문서 미리보기</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
         
         pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
         preview_ctx = {
@@ -790,14 +930,14 @@ if menu == "서류 통합 생성":
         
         realtime_pdf_bytes = generate_pdf(preview_ctx)
         file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
-        st.download_button("💾 완성된 PDF 다운로드", realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
+        st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
         
         pdf_imgs = render_pdf_images(realtime_pdf_bytes)
         if pdf_imgs:
             for i, img_b in enumerate(pdf_imgs):
                 st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
         else:
-            st.info("PDF 미리보기를 생성 중입니다...")
+            st.info("Generating PDF preview...")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
@@ -806,7 +946,7 @@ if menu == "서류 통합 생성":
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📊 서류 발행 관리대장 및 실시간 검색</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
 
     if not ledger_df.empty:
         ledger_df = clean_df(ledger_df)
@@ -815,36 +955,36 @@ elif menu == "서류 관리대장":
 
         f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 3])
         with f_col1:
-            doc_types = ["전체"] + sorted([d for d in ledger_df["DocType"].unique() if d])
-            sel_doctype = st.selectbox("📋 서류 유형 필터", doc_types)
+            doc_types = [t("all")] + sorted([d for d in ledger_df["DocType"].unique() if d])
+            sel_doctype = st.selectbox(t("filter_doc_type"), doc_types)
         with f_col2:
-            ships = ["전체"] + sorted([s for s in ledger_df["ShipName"].unique() if s and s != "-"])
-            sel_ship = st.selectbox("🚢 선박명 필터", ships)
+            ships = [t("all")] + sorted([s for s in ledger_df["ShipName"].unique() if s and s != "-"])
+            sel_ship = st.selectbox(t("filter_ship"), ships)
         with f_col3:
-            users = ["전체"] + sorted([u for u in ledger_df["CreatedBy"].unique() if u and u != "-"])
-            sel_user = st.selectbox("👤 작성자 필터", users)
+            users = [t("all")] + sorted([u for u in ledger_df["CreatedBy"].unique() if u and u != "-"])
+            sel_user = st.selectbox(t("filter_user"), users)
         with f_col4:
-            keyword = st.text_input("🔎 키워드 검색 (Ref, 수신처 등)", placeholder="검색어 입력...")
+            keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"))
 
         filtered_df = ledger_df.copy()
 
-        if sel_doctype != "전체":
+        if sel_doctype != t("all"):
             filtered_df = filtered_df[filtered_df["DocType"] == sel_doctype]
-        if sel_ship != "전체":
+        if sel_ship != t("all"):
             filtered_df = filtered_df[filtered_df["ShipName"] == sel_ship]
-        if sel_user != "전체":
+        if sel_user != t("all"):
             filtered_df = filtered_df[filtered_df["CreatedBy"] == sel_user]
         if keyword.strip():
             kw = keyword.strip().lower()
             match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
             filtered_df = filtered_df[match_mask]
 
-        st.markdown(f"**총 `{len(filtered_df)}` 건 조회됨** (전체 `{len(ledger_df)}` 건 중)")
+        st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
         st.dataframe(filtered_df, use_container_width=True)
 
-        st.download_button("📥 필터링된 결과 엑셀(CSV) 다운로드", filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
+        st.download_button(t("btn_download_csv"), filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
     else:
-        st.info("관리대장에 등록된 서류 내역이 없습니다.")
+        st.info(t("no_ledger"))
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
@@ -856,82 +996,79 @@ elif menu == "마스터 DB 관리":
     if task['status'] == 'completed' and task['type'] == 'db_parse':
         st.session_state['temp_db_upload'] = clean_df(task['result'])
         st.session_state['bg_task']['status'] = 'idle'
-        st.success("🎉 시트 AI 파싱 완료")
+        st.success("🎉 AI Parsing Complete")
 
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">🤖 AI 단가표 수집기</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">{t("ai_db_title")}</div>', unsafe_allow_html=True)
     
-    ai_mode_choice_db = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running, key="db_ai_mode")
-    selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db else "flash"
-    uploaded_db_file = st.file_uploader("단가표 파일 업로드", type=["xlsx", "csv"], disabled=is_running)
+    ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="db_ai_mode")
+    selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
+    uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running)
     
     if uploaded_db_file:
         sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-        parse_mode = st.radio("파싱 모드", ["📌 특정 시트 선택", "🚀 전체 시트 파싱"], horizontal=True, disabled=is_running)
-        if parse_mode == "📌 특정 시트 선택":
-            selected_sheet = st.selectbox("시트 선택", sheet_names, disabled=is_running)
-            if st.button("✨ 분석", disabled=is_running):
+        parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running)
+        if parse_mode == t("parse_mode_sheet"):
+            selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running)
+            if st.button(t("btn_analyze"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'db_parse'
                 start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
                 st.rerun()
         else:
-            if st.button("🚀 전체 파싱", disabled=is_running):
+            if st.button(t("btn_parse_all"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'db_parse'
                 start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
                 st.rerun()
 
     if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
         st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
-        # ⭐ 저장 비밀번호 0915 적용
-        db_parse_pwd = st.text_input("🔒 저장 비밀번호", type="password", key="db_parse_pwd")
-        if st.button("✅ DB 최종 저장", disabled=is_running):
+        db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_parse_pwd")
+        if st.button(t("btn_final_db_save"), disabled=is_running):
             if db_parse_pwd != SAVE_PASSWORD:
-                st.error("❌ 비밀번호가 올바르지 않습니다.")
+                st.error(t("pwd_err"))
             else:
                 updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
                 updated_db.to_csv(DB_FILE, index=False)
                 del st.session_state['temp_db_upload']
-                st.success("저장 완료")
+                st.success("Successfully saved to DB.")
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">📊 DB 관리</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">{t("db_mgmt_title")}</div>', unsafe_allow_html=True)
     edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
     
-    # ⭐ 저장 비밀번호 0915 적용
-    db_edit_pwd = st.text_input("🔒 저장 비밀번호", type="password", key="db_edit_pwd")
-    if st.button("💾 DB 수정사항 저장"):
+    db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_edit_pwd")
+    if st.button(t("btn_save_db")):
         if db_edit_pwd != SAVE_PASSWORD:
-            st.error("❌ 비밀번호가 올바르지 않습니다.")
+            st.error(t("pwd_err"))
         else:
             edited_db.to_csv(DB_FILE, index=False)
-            st.success("수정사항이 마스터 DB에 저장되었습니다.")
+            st.success("Master DB changes saved successfully.")
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    with st.expander("🚨 DB 초기화"):
-        # ⭐ 전체 초기화는 관리자 비밀번호 admin0915 요구
-        pwd_input = st.text_input("관리자 비밀번호 입력", type="password", key="reset_pwd")
-        if st.button("🔥 초기화") and pwd_input == ADMIN_PASSWORD:
+    with st.expander(t("db_reset_title")):
+        pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_pwd")
+        if st.button(t("btn_reset")) and pwd_input == ADMIN_PASSWORD:
             pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
-            st.success("초기화됨")
+            st.success("Master DB initialized.")
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     files = [f for f in os.listdir("output") if f.endswith('.pdf')]
     if files:
-        selected_file = st.selectbox("문서 선택", files)
+        selected_file = st.selectbox("Select File", files)
         if selected_file:
             pdf_data = open(os.path.join("output", selected_file), "rb").read()
-            st.download_button("💾 다운로드", pdf_data, file_name=selected_file, mime="application/pdf")
+            st.download_button(t("btn_download_pdf"), pdf_data, file_name=selected_file, mime="application/pdf")
             pdf_imgs = render_pdf_images(pdf_data)
             if pdf_imgs:
                 for i, img_b in enumerate(pdf_imgs):
                     st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
     else:
-        st.info("저장된 PDF 문서가 없습니다.")
+        st.info("No saved PDF documents found.")
 
 if is_running:
     time.sleep(1.0)
