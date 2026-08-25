@@ -371,7 +371,7 @@ else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
 
 if not os.path.exists(LEDGER_FILE):
-    pd.DataFrame(columns=["Date", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount"]).to_csv(LEDGER_FILE, index=False)
+    pd.DataFrame(columns=["Date", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -389,11 +389,13 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, date_str, currency, total_amount, item_count):
+# ⭐ 작성자 정보(CreatedBy) 기록 연동
+def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     new_entry = pd.DataFrame([{
         "Date": date_str or "-", "DocType": doc_type, "YourRef": your_ref or "-", "OurRef": our_ref or "-",
-        "ShipName": ship_name or "-", "TargetName": target_name or "-", "Currency": currency or "-", "TotalAmount": total_amount, "ItemCount": item_count
+        "ShipName": ship_name or "-", "TargetName": target_name or "-", "Currency": currency or "-", 
+        "TotalAmount": total_amount, "ItemCount": item_count, "CreatedBy": user_email or "Unknown"
     }])
     pd.concat([ledger_df, new_entry], ignore_index=True).to_csv(LEDGER_FILE, index=False)
 
@@ -645,7 +647,6 @@ if menu == "서류 통합 생성":
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
-        # ⭐ 화려한 형광/네온 테두리와 안내 문구가 적용된 AI 분석 아코디언
         with st.expander("⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽", expanded=False):
             ai_mode_choice = st.radio("AI 분석 엔진 선택", ["⚡ 고속 Flash 모드", "🧠 심층 Thinking (사고) 모드"], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice else "flash"
@@ -702,7 +703,6 @@ if menu == "서류 통합 생성":
         part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
         item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
-        # ItemName 및 Description 폭 최적화
         column_config = {
             "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
             "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
@@ -756,16 +756,25 @@ if menu == "서류 통합 생성":
         st.markdown('<div class="section-title" style="margin-top:16px;">📝 Remarks & Deviations</div>', unsafe_allow_html=True)
         bottom_remarks = st.text_area("하단 비고란", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80)
         
-        st.markdown('<div class="section-title" style="margin-top:16px;">📌 관리대장 저장</div>', unsafe_allow_html=True)
+        # ⭐ 1. 관리자 비밀번호 입력 필드 및 등록 로직
+        st.markdown('<div class="section-title" style="margin-top:16px;">📌 관리대장 및 DB 등록</div>', unsafe_allow_html=True)
+        reg_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="doc_reg_pwd")
+        
         if st.button("📥 관리대장 및 마스터 DB 등록", type="secondary", disabled=is_running):
-            st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
-            st.session_state['doc_items'] = clean_df(edited_df)
-            db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
-            db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
-            safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
-            save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df))
-            save_history(ship_name, to_name, attn_name)
-            st.success("🎉 서류 관리대장 및 마스터 DB 등록 완료")
+            if reg_pwd != ADMIN_PASSWORD:
+                st.error("❌ 비밀번호가 올바르지 않습니다. (비밀번호: admin1234)")
+            else:
+                current_user = st.session_state.get('user_email', 'Unknown')
+                st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
+                st.session_state['doc_items'] = clean_df(edited_df)
+                db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
+                db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
+                safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
+                
+                # 작성자(current_user) 정보 포함하여 대장 저장
+                save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
+                save_history(ship_name, to_name, attn_name)
+                st.success(f"🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {current_user})")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with right_col:
@@ -793,17 +802,56 @@ if menu == "서류 통합 생성":
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장 ~ 기타 메뉴
+# 7. 서류 관리대장 (고성능 필터링 및 작성자 검색 기능 복구)
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📊 서류 발행 관리대장 및 실시간 검색</div>', unsafe_allow_html=True)
+
     if not ledger_df.empty:
-        st.dataframe(clean_df(ledger_df), use_container_width=True)
-        st.download_button("📥 엑셀(CSV) 다운로드", ledger_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger.csv", mime="text/csv")
-    else: st.info("데이터가 없습니다.")
+        ledger_df = clean_df(ledger_df)
+        if "CreatedBy" not in ledger_df.columns:
+            ledger_df["CreatedBy"] = "-"
+
+        # ⭐ 대장 다중 필터 및 검색 바
+        f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 3])
+        with f_col1:
+            doc_types = ["전체"] + sorted([d for d in ledger_df["DocType"].unique() if d])
+            sel_doctype = st.selectbox("📋 서류 유형 필터", doc_types)
+        with f_col2:
+            ships = ["전체"] + sorted([s for s in ledger_df["ShipName"].unique() if s and s != "-"])
+            sel_ship = st.selectbox("🚢 선박명 필터", ships)
+        with f_col3:
+            users = ["전체"] + sorted([u for u in ledger_df["CreatedBy"].unique() if u and u != "-"])
+            sel_user = st.selectbox("👤 작성자 필터", users)
+        with f_col4:
+            keyword = st.text_input("🔎 키워드 검색 (Ref, 수신처 등)", placeholder="검색어 입력...")
+
+        filtered_df = ledger_df.copy()
+
+        if sel_doctype != "전체":
+            filtered_df = filtered_df[filtered_df["DocType"] == sel_doctype]
+        if sel_ship != "전체":
+            filtered_df = filtered_df[filtered_df["ShipName"] == sel_ship]
+        if sel_user != "전체":
+            filtered_df = filtered_df[filtered_df["CreatedBy"] == sel_user]
+        if keyword.strip():
+            kw = keyword.strip().lower()
+            match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
+            filtered_df = filtered_df[match_mask]
+
+        st.markdown(f"**총 `{len(filtered_df)}` 건 조회됨** (전체 `{len(ledger_df)}` 건 중)")
+        st.dataframe(filtered_df, use_container_width=True)
+
+        st.download_button("📥 필터링된 결과 엑셀(CSV) 다운로드", filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
+    else:
+        st.info("관리대장에 등록된 서류 내역이 없습니다.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ==========================================
+# 8. 마스터 DB 관리 (비밀번호 보호 기능 적용)
+# ==========================================
 elif menu == "마스터 DB 관리":
     db = clean_df(pd.read_csv(DB_FILE))
     
@@ -836,20 +884,31 @@ elif menu == "마스터 DB 관리":
 
     if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
         st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
+        # ⭐ 비밀번호 보호 적용
+        db_parse_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="db_parse_pwd")
         if st.button("✅ DB 최종 저장", disabled=is_running):
-            updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
-            updated_db.to_csv(DB_FILE, index=False)
-            del st.session_state['temp_db_upload']
-            st.success("저장 완료")
-            st.rerun()
+            if db_parse_pwd != ADMIN_PASSWORD:
+                st.error("❌ 비밀번호가 올바르지 않습니다.")
+            else:
+                updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
+                updated_db.to_csv(DB_FILE, index=False)
+                del st.session_state['temp_db_upload']
+                st.success("저장 완료")
+                st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">📊 DB 관리</div>', unsafe_allow_html=True)
     edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
+    
+    # ⭐ 비밀번호 보호 적용
+    db_edit_pwd = st.text_input("🔒 관리자 비밀번호 (admin1234)", type="password", key="db_edit_pwd")
     if st.button("💾 DB 수정사항 저장"):
-        edited_db.to_csv(DB_FILE, index=False)
-        st.success("저장되었습니다.")
+        if db_edit_pwd != ADMIN_PASSWORD:
+            st.error("❌ 비밀번호가 올바르지 않습니다.")
+        else:
+            edited_db.to_csv(DB_FILE, index=False)
+            st.success("수정사항이 마스터 DB에 저장되었습니다.")
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="erp-card">', unsafe_allow_html=True)
