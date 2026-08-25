@@ -8,13 +8,15 @@ import re
 import time
 import io
 import threading
+import urllib.parse
+import urllib.request
 from datetime import datetime
 import google.generativeai as genai
 from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # ==========================================
-# 0. 관리자 보안 및 API 키 설정
+# 0. 관리자 보안, API 키 및 구글 OAuth 설정
 # ==========================================
 ADMIN_PASSWORD = "admin1234"
 DEFAULT_GEMINI_KEY = ""
@@ -25,6 +27,52 @@ CLASS_OPTIONS = [
     "선택 안함", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
 ]
+
+# 구글 OAuth 설정 불러오기
+def get_secret(key, default=""):
+    try:
+        if key in st.secrets: return st.secrets[key]
+    except Exception: pass
+    return default
+
+GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = get_secret("REDIRECT_URI")
+ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
+
+# ==========================================
+# 0-1. 구글 OAuth 로그인 처리 로직
+# ==========================================
+def get_google_auth_url():
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account"
+    }
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+
+def get_google_user_info(code):
+    token_url = "https://oauth2.googleapis.com/token"
+    data = urllib.parse.urlencode({
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code"
+    }).encode('utf-8')
+    
+    req = urllib.request.Request(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req) as response:
+        token_data = json.loads(response.read().decode('utf-8'))
+        
+    access_token = token_data.get("access_token")
+    userinfo_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={access_token}"
+    req_user = urllib.request.Request(userinfo_url)
+    with urllib.request.urlopen(req_user) as response_user:
+        return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
 # 1. 페이지 설정 & CSS
@@ -45,9 +93,54 @@ custom_css = """
     .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
+    .login-box { max-width: 450px; margin: 80px auto; padding: 30px; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 16px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+    .google-btn { display: inline-block; background-color: #4285F4; color: white !important; font-weight: bold; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 1rem; margin-top: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
+
+# 인증 상태 체크 및 콜백 처리
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+    st.session_state['user_email'] = ""
+
+# 구글 OAuth 인증 코드 수신 처리
+query_params = st.query_params
+if "code" in query_params and not st.session_state['authenticated']:
+    auth_code = query_params["code"]
+    try:
+        user_info = get_google_user_info(auth_code)
+        email = user_info.get("email", "")
+        if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
+            st.error(f"❌ 접근 거부: 사내 계정(@{ALLOWED_DOMAIN})으로만 로그인 가능합니다. (로그인 시도: {email})")
+        else:
+            st.session_state['authenticated'] = True
+            st.session_state['user_email'] = email
+            st.query_params.clear()
+            st.rerun()
+    except Exception as e:
+        st.error(f"구글 로그인 인증 처리 중 오류가 발생했습니다: {e}")
+
+# 인증 안 된 경우 로그인 화면 표시
+if not st.session_state['authenticated']:
+    st.markdown('<div class="login-box">', unsafe_allow_html=True)
+    st.markdown("<h2>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
+    st.markdown("<p>사내 임직원 전용 서류 관리 시스템입니다.<br>구글 계정으로 로그인해 주세요.</p>", unsafe_allow_html=True)
+    
+    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+        auth_url = get_google_auth_url()
+        st.markdown(f'<a href="{auth_url}" class="google-btn">🔑 Google 계정으로 로그인</a>', unsafe_allow_html=True)
+    else:
+        st.warning("⚠️ 구글 OAuth 설정이 감지되지 않았습니다. (Secrets 미설정)")
+        st.info("테스트용 임시 진입 모드를 사용합니다.")
+        test_email = st.text_input("사내 이메일 입력", value=f"user@{ALLOWED_DOMAIN}")
+        if st.button("🚀 로그인 진입"):
+            st.session_state['authenticated'] = True
+            st.session_state['user_email'] = test_email
+            st.rerun()
+            
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
@@ -158,11 +251,12 @@ HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
 
+# ⭐ 'None' 및 'nan' 문자열 완벽 제거
 def clean_df(df):
     if df is None or df.empty: return df
     df = df.copy().fillna("")
     for col in df.columns:
-        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>"], "")
+        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none"], "")
     return df
 
 def prepare_items_for_pdf(items_list):
@@ -438,6 +532,13 @@ def start_bg_thread(target_func, args):
 # 5. UI 및 사이드바
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
+if st.session_state.get('user_email'):
+    st.sidebar.markdown(f"👤 **접속자:** `{st.session_state['user_email']}`")
+    if st.sidebar.button("🚪 로그아웃"):
+        st.session_state['authenticated'] = False
+        st.session_state['user_email'] = ""
+        st.rerun()
+
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">✨ Powered by WeasyPrint & Gemini</span></div>""", unsafe_allow_html=True)
 
 menu = st.sidebar.radio("SYSTEM MENU", ["서류 통합 생성", "서류 관리대장", "마스터 DB 관리", "발행 이력 조회"])
@@ -494,7 +595,8 @@ if menu == "서류 통합 생성":
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI 분석 완료. 결과가 반영되었습니다.")
 
-    left_col, right_col = st.columns([4, 6])
+    # ⭐ 좌/우 5:5 균등 비율 배치 (테이블 시선 확보)
+    left_col, right_col = st.columns([5, 5])
 
     with left_col:
         with st.expander("🤖 AI 문서 분석", expanded=False):
@@ -550,18 +652,19 @@ if menu == "서류 통합 생성":
 
         st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
         
-        part_no_list = [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else []
-        item_name_list = [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else []
+        # 빈 선택 옵션("")을 첫 번째 요소로 제공하여 'None' 노출 원천 차단
+        part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
+        item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
 
-        # ⭐ 각 열의 가로폭을 픽셀(px) 단위로 타이트하게 고정 (더블클릭 Auto-fit 효과)
+        # ⭐ 초슬림 픽셀 핏 컬럼 폭 설정 (가로 잘림 및 스크롤바 방지)
         column_config = {
-            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=95) if part_no_list else st.column_config.TextColumn("PartNo", width=95),
-            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=135) if item_name_list else st.column_config.TextColumn("Item Name", width=135),
-            "Description": st.column_config.TextColumn("Description", width=200),
-            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1, width=55),
-            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=85),
-            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=95),
-            "Remarks": st.column_config.TextColumn("Remarks", width=105),
+            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=75),
+            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=110),
+            "Description": st.column_config.TextColumn("Description", width=140),
+            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1, width=45),
+            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=70),
+            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=75),
+            "Remarks": st.column_config.TextColumn("Remarks", width=75),
         }
 
         df_current = clean_df(st.session_state['doc_items'].copy())
@@ -569,7 +672,7 @@ if menu == "서류 통합 생성":
         cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
         for c in cols_order:
             if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
-        df_current = df_current[cols_order]
+        df_current = clean_df(df_current[cols_order])
 
         for i, row in df_current.iterrows():
             if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
@@ -577,7 +680,6 @@ if menu == "서류 통합 생성":
 
         edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
-        # PartNo / ItemName 양방향 자동 연동
         for i, row in edited_df.iterrows():
             pno = clean_str(row.get('PartNo'))
             iname = clean_str(row.get('ItemName'))
