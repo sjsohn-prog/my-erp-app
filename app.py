@@ -515,10 +515,10 @@ if menu == "서류 통합 생성":
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="section-title">📌 {doc_type} 헤더 입력</div>', unsafe_allow_html=True)
         
-        sel_to = st.selectbox("To (수신처 선택)", options=[""] + history["to_list"])
+        sel_to = st.selectbox("To", options=[""] + history["to_list"])
         to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
         
-        sel_attn = st.selectbox("Attention (참조/담당자 선택)", options=[""] + history["attns"])
+        sel_attn = st.selectbox("Attention", options=[""] + history["attns"])
         attn_name = st.text_input("Attention", value=st.session_state['doc_info']["attn"] if not sel_attn else sel_attn)
         
         project_title = st.text_input("Project Title", value=st.session_state['doc_info'].get("project_title", ""))
@@ -529,7 +529,7 @@ if menu == "서류 통합 생성":
         payment_due = st.text_input("Payment Due", value=st.session_state['doc_info'].get("payment_due", ""))
         pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", ""))
         
-        sel_ship = st.selectbox("Ship's Name (선박명 선택)", options=[""] + history["ships"])
+        sel_ship = st.selectbox("Ship's Name", options=[""] + history["ships"])
         ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
 
         # Flag / Class 선택
@@ -547,7 +547,7 @@ if menu == "서류 통합 생성":
         flag_class = st.text_input("Flag / Class", value=auto_fc)
 
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
-        currency = st.selectbox("Currency (통화)", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
+        currency = st.selectbox("Currency", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
 
         st.markdown('<div class="section-title" style="margin-top:16px;">📦 품목 상세 내역</div>', unsafe_allow_html=True)
         
