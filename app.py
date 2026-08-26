@@ -59,7 +59,6 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
-# [추가된 함수 1] DataFrame 텍스트 정제 함수
 def clean_df(df):
     if df is None or df.empty:
         return df
@@ -69,29 +68,15 @@ def clean_df(df):
             df[col] = df[col].apply(clean_str)
     return df
 
-# [추가된 함수 2] 환율 데이터 가져오기 함수
 def get_exchange_rates():
     return {
         "USD": 1.0, "KRW": 1350.0, "EUR": 0.92, "JPY": 150.0,
         "CNY": 7.2, "SGD": 1.35, "GBP": 0.79, "HKD": 7.8, "AED": 3.67
     }
 
-# [추가된 함수 3] 통화별 기준 환율 반환 함수
 def get_rate_per_usd(currency, rates):
     c = clean_str(currency).upper()
     return rates.get(c, 1.0)
-
-def safe_float(val, default=0.0):
-    if val is None or pd.isna(val):
-        return default
-    s = str(val).replace(',', '').strip()
-    match = re.search(r"[-+]?\d*\.\d+|\d+", s)
-    if match:
-        try:
-            return float(match.group())
-        except ValueError:
-            return default
-    return default
 
 def safe_float(val, default=0.0):
     if val is None or pd.isna(val):
@@ -969,7 +954,7 @@ elif st.session_state['current_menu'] != menu:
 
 task = st.session_state['bg_task']
 if is_running:
-    st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 정 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
 elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
@@ -1261,7 +1246,7 @@ if menu == "서류 통합 생성":
                             lines = [line.strip() for line in re.split(r'\n|<br>', desc_text if desc_text else iname_text) if line.strip()]
                             
                             if len(lines) <= 1:
-                                st.info("해당 행은 줄바꿈이 없거나 1줄이어서 나눌 수 없습니다.")
+                                st.info("해당 행은 줄바꿈이 없거나 1줄이어서 나눌 수 정 할 수 없습니다.")
                             else:
                                 split_rows = []
                                 for idx_l, line in enumerate(lines):
