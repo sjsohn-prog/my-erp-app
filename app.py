@@ -67,7 +67,7 @@ CUSTOMER_DB_FILE = "customer_db.csv"
 ITEM_MASTER_FILE = "item_master.csv"
 
 # ==========================================
-# 0-1. 최상단 공통 헬퍼 함수 정의
+# 0-1. 최상단 공통 헬퍼 함수 및 라이브 환율
 # ==========================================
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
@@ -92,11 +92,34 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
+# 라이브 환율 API 연동 (30분 간격 캐싱)
+@st.cache_data(ttl=1800)
 def get_exchange_rates():
-    return {
+    defaults = {
         "USD": 1.0, "KRW": 1350.0, "EUR": 0.92, "JPY": 150.0,
         "CNY": 7.2, "SGD": 1.35, "GBP": 0.79, "HKD": 7.8, "AED": 3.67
     }
+    try:
+        url = "https://open.er-api.com/v6/latest/USD"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            if data.get("result") == "success" and "rates" in data:
+                rates = data["rates"]
+                return {
+                    "USD": 1.0,
+                    "KRW": float(rates.get("KRW", defaults["KRW"])),
+                    "EUR": float(rates.get("EUR", defaults["EUR"])),
+                    "JPY": float(rates.get("JPY", defaults["JPY"])),
+                    "CNY": float(rates.get("CNY", defaults["CNY"])),
+                    "SGD": float(rates.get("SGD", defaults["SGD"])),
+                    "GBP": float(rates.get("GBP", defaults["GBP"])),
+                    "HKD": float(rates.get("HKD", defaults["HKD"])),
+                    "AED": float(rates.get("AED", defaults["AED"]))
+                }
+    except Exception:
+        pass
+    return defaults
 
 def get_rate_per_usd(currency, rates):
     c = clean_str(currency).upper()
@@ -197,7 +220,6 @@ TRANSLATIONS = {
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 DB 데이터 등록 및 저장",
         "pwd_save_label": "🔒 비밀번호",
-        "btn_register": "📥 자사 서류 대장에 헤더 등록",
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
         "doc_ledger_title": "📊 서류 통합 관리 대장",
@@ -250,7 +272,6 @@ TRANSLATIONS = {
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 Save Data to DB",
         "pwd_save_label": "🔒 Password",
-        "btn_register": "📥 Save Header to Document Ledger",
         "preview_title": "⚡ Live PDF Document Preview",
         "btn_download_pdf": "💾 Download PDF Document",
         "doc_ledger_title": "📊 Document Ledger Management",
@@ -879,7 +900,7 @@ def safe_merge_db(existing_db, new_data_df, cols):
     return clean_df(combined)
 
 if 'doc_info' not in st.session_state:
-    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": "", "is_customer_doc": False}
 
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
@@ -933,8 +954,8 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         with open(save_path, "wb") as f:
             f.write(file_bytes)
 
-        # JSON 이스케이프 완벽 정제 (중괄호 {{ }} 적용으로 파이썬 f-string 포맷팅 오류 완전 해결)
-        prompt = f"""
+        # f-string 중괄호 이스케이프 완벽 정제
+        prompt = """
         Extract document details into JSON format matching the fixed header fields and item list.
         
         CRITICAL RULES FOR EXTRACTION:
@@ -955,12 +976,12 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
            - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
 
         Return valid JSON EXACTLY matching this structure:
-        {{
+        {
             "issuer_company": "", "issuer_pic": "", "recipient_company": "", "recipient_attn": "",
             "to_name": "", "attn_name": "", "project_title": "", "validity": "", "flag_class": "",
             "our_ref": "", "date_str": "", "pic": "", "your_ref": "", "ship_name": "", "payment_due": "", "currency": "",
-            "items": [{{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}}]
-        }}
+            "items": [{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}]
+        }
         """
         if file_ext in ['png', 'jpg', 'jpeg']:
             content = Image.open(io.BytesIO(file_bytes))
@@ -997,7 +1018,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
-        # 서류 이력에 자동으로 남도록 input_docs 디렉토리 저장을 추가
+        # 서류 이력(input_docs)에 자동 저장
         save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f:
             f.write(file_bytes)
@@ -1065,7 +1086,7 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
-        # 서류 이력에 자동으로 남도록 input_docs 디렉토리 저장을 추가
+        # 서류 이력(input_docs)에 자동 저장
         save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f:
             f.write(file_bytes)
@@ -1222,7 +1243,6 @@ if menu == "서류 분석 / 생성 Master":
     cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
     history = load_history()
 
-    # 정렬 에러 방지를 위해 명시적으로 str() 캐스팅 및 결측치 필터링
     db_to_options = sorted(list(set([str(x).strip() for x in (our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history.get("to_list", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
     db_ship_options = sorted(list(set([str(x).strip() for x in (our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history.get("ships", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
     db_attn_options = sorted(list(set([str(x).strip() for x in history.get("attns", []) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
@@ -1246,11 +1266,13 @@ if menu == "서류 분석 / 생성 Master":
             your_ref_val = clean_str(ai_data.get("our_ref", "")) or clean_str(ai_data.get("your_ref", ""))
             our_ref_val = ""
             pic_field_val = recip_attn if recip_attn else current_logged_user
+            is_customer_doc_flag = True
         else:
             to_field_val, attn_field_val = recip_comp, recip_attn
             your_ref_val = clean_str(ai_data.get("your_ref", ""))
             our_ref_val = clean_str(ai_data.get("our_ref", ""))
             pic_field_val = issuer_pic if issuer_pic else current_logged_user
+            is_customer_doc_flag = False
 
         project_val = clean_str(ai_data.get("project_title", ""))
         validity_val = clean_str(ai_data.get("validity", "30 Days"))
@@ -1265,7 +1287,8 @@ if menu == "서류 분석 / 생성 Master":
             "validity": validity_val, "flag_class": flag_class_val, "our_ref": our_ref_val,
             "date": date_val, "pic": pic_field_val, "your_ref": your_ref_val, "ship": ship_val, 
             "payment_due": payment_due_val, "currency": currency_val, 
-            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
+            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", ""),
+            "is_customer_doc": is_customer_doc_flag
         }
 
         def set_widget_val(prefix, val):
@@ -1311,7 +1334,7 @@ if menu == "서류 분석 / 생성 Master":
                 st.rerun()
 
         if st.button(t("btn_reset"), disabled=is_running):
-            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": "", "is_customer_doc": False}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
             st.rerun()
@@ -1408,30 +1431,36 @@ if menu == "서류 분석 / 생성 Master":
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
 
-            # DB 저장 및 등록 섹션 (순서: 1.일괄등록, 2.헤더등록, 3.품목등록)
+            # DB 저장 및 등록 섹션
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
+            
+            # 서류 저장 라우팅 선택 (자사 vs 고객사/공급사)
+            init_ledger_idx = 1 if st.session_state['doc_info'].get("is_customer_doc", False) else 0
+            doc_target_ledger = st.radio("📥 등록 대상 서류 대장 선택", ["🏢 자사 서류 대장", "🤝 고객사 / 공급사 서류 대장"], index=init_ledger_idx, horizontal=True)
+            selected_target_file = CUSTOMER_DB_FILE if "고객사" in doc_target_ledger else OUR_DB_FILE
+
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
             with btn_col1:
-                if st.button("🚀 헤더 & 품목 일괄 등록", key="btn_reg_all_batch", disabled=is_running):
+                if st.button("🚀 서류 자재 일괄 등록", key="btn_reg_all_batch", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
-                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_to_doc_ledger(selected_target_file, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
                         save_history(ship_name, to_name, attn_name)
                         count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
-                        st.success(f"🎉 서류 대장 및 자재 마스터({count}건) 일괄 등록 완료!")
+                        st.success(f"🎉 서류 대장({doc_target_ledger}) 및 자재 마스터({count}건) 일괄 등록 완료!")
 
             with btn_col2:
-                if st.button("📥 서류 대장에 헤더 등록", key="btn_reg_header_only", disabled=is_running):
+                if st.button("📥 서류 대장에 등록", key="btn_reg_header_only", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
-                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_to_doc_ledger(selected_target_file, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
                         save_history(ship_name, to_name, attn_name)
-                        st.success("🎉 자사 서류 대장에 헤더가 성공적으로 등록되었습니다.")
+                        st.success(f"🎉 {doc_target_ledger}에 헤더가 성공적으로 등록되었습니다.")
             
             with btn_col3:
-                if st.button("📦 자재 마스터 DB에 품목 등록", key="btn_reg_items_only", disabled=is_running):
+                if st.button("📦 자재 마스터 DB에 등록", key="btn_reg_items_only", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
                         count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
@@ -1473,11 +1502,11 @@ elif menu == "서류 관리 대장":
         db_df = ensure_cols(db_df, doc_db_cols)
         db_df = clean_df(db_df)
         
-        # 1. 숫자형 컬럼 명시적 float 캐스팅 (StreamlitAPIException 방지)
+        # 1. 숫자형 컬럼 명시적 float 캐스팅
         db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
         db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
 
-        # 2. Selectbox 옵션 허용값 산출 및 텍스트 컬럼 안전 처리 (빈값 및 기타값 포함)
+        # 2. Selectbox 옵션 허용값 산출 및 텍스트 컬럼 안전 처리
         doc_type_opts = list(set(["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-", ""] + db_df["DocType"].astype(str).unique().tolist()))
         curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + db_df["Currency"].astype(str).unique().tolist()))
         status_opts = list(set(STATUS_OPTIONS + ["-", ""] + db_df["Status"].astype(str).unique().tolist()))
