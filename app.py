@@ -22,7 +22,7 @@ ADMIN_PASSWORD = "admin0915"
 SAVE_PASSWORD = "0915"
 DEFAULT_GEMINI_KEY = ""
 
-# ⭐ FLAG 및 Class 선택 옵션 "Choose an option" 통일
+# ⭐ FLAG, Class, Currency 드롭다운 옵션 및 톤다운 선택지 세팅
 FLAG_OPTIONS = [
     "Choose an option", "Panama", "Liberia", "Marshall Islands", "Hong Kong", 
     "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
@@ -31,6 +31,10 @@ FLAG_OPTIONS = [
 CLASS_OPTIONS = [
     "Choose an option", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
+]
+
+CURRENCY_OPTIONS = [
+    "Choose an option", "KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"
 ]
 
 def get_secret(key, default=""):
@@ -234,6 +238,15 @@ custom_css = """
         font-weight: 800 !important;
         color: #00F0FF !important;
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
+    }
+
+    /* ⭐ 드롭다운 (Selectbox) 은은하고 톤다운된 UI 스타일링 */
+    div[data-baseweb="select"] {
+        border-radius: 8px !important;
+    }
+    div[data-baseweb="select"] span {
+        color: var(--text-color) !important;
+        font-weight: 500 !important;
     }
 
     .stButton > button, .google-btn { 
@@ -725,7 +738,7 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (⭐ 입체적 수발신 반전 적용)
+# 6. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -751,13 +764,9 @@ if menu == "서류 통합 생성":
         
         if is_incoming_to_us:
             # 수신자가 원솔루션인 경우 (상대방이 당사로 보낸 문서 분석 시):
-            # 1. 수신처(To) -> 상대방 회사 (발행회사)
             to_field_val = issuer_comp or recip_comp
-            # 2. 상대방 Attention -> 상대방 담당자/PIC (issuer_pic)
             attn_field_val = issuer_pic
-            # 3. 당사 PIC -> 수신 문서의 Attention에 들어있던 원솔루션 담당자 (예: 최아름 님)
             pic_field_val = recip_attn if recip_attn else st.session_state.get('user_email', '')
-            # 4. Ref 교대
             your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "")
             our_ref_val = ""
         else:
@@ -862,8 +871,11 @@ if menu == "서류 통합 생성":
 
         flag_class = st.text_input("Flag / Class", value=auto_fc)
 
+        # ⭐ 통화 선택 옵션 확장 및 Choose an option 톤다운 선택
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
-        currency = st.selectbox("Currency", ["KRW", "USD", "EUR"], index=["KRW", "USD", "EUR"].index(curr_val) if curr_val in ["KRW", "USD", "EUR"] else 0)
+        curr_index = CURRENCY_OPTIONS.index(curr_val) if curr_val in CURRENCY_OPTIONS else 1
+        currency = st.selectbox("Currency", CURRENCY_OPTIONS, index=curr_index)
+        if currency == "Choose an option": currency = "KRW"
 
         st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("items_title")}</div>', unsafe_allow_html=True)
         
