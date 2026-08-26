@@ -329,9 +329,9 @@ custom_css = """
         padding-bottom: 1rem !important;
     }
     
-    /* KR EN 스위치를 상단 헤더 툴바 우측으로 위로 고정 이동 */
+    /* 태극기 / 미국국기 언어 선택 스위치 우상단 배치 */
     div[data-testid="stRadio"]:has(input[aria-label="Language"]),
-    div[data-testid="stRadio"]:has(input[value="KR"]) {
+    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) {
         position: fixed !important;
         top: 10px !important;
         right: 175px !important;
@@ -343,12 +343,12 @@ custom_css = """
         box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
     }
     div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
-    div[data-testid="stRadio"]:has(input[value="KR"]) > div {
+    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) > div {
         flex-direction: row !important;
         gap: 10px !important;
     }
 
-    /* 파일 업로드 칩 옆에 표시되는 불필요한 '+' 추가 버튼 숨기기 */
+    /* 파일 업로드 칩 옆의 '+' 버튼 숨기기 */
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] ~ button {
         display: none !important;
@@ -424,10 +424,12 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 상단 우측 위치 KR / EN 스위치
-selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
-if selected_lang != st.session_state['lang']:
-    st.session_state['lang'] = selected_lang
+# 태극기 / 미국국기 언어 선택 스위치
+selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
+target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
+
+if target_lang_code != st.session_state['lang']:
+    st.session_state['lang'] = target_lang_code
     st.rerun()
 
 if 'authenticated' not in st.session_state:
@@ -1090,8 +1092,7 @@ if menu == "서류 통합 생성":
         
         current_logged_user = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
 
-        # 1번 요구사항 정밀 반영:
-        # 외부 문서 수신 시 원솔루션 수신자 담당자가 명시되어 있으면 그 사람을 PIC에, 없으면 현재 로그인 유저를 PIC로 지정
+        # 수신/발신 역할 지정 및 PIC 자동 판단 로직
         if not is_our_company_issuer and issuer_comp:
             to_field_val = issuer_comp
             attn_field_val = issuer_pic
@@ -1560,6 +1561,15 @@ elif menu == "서류 관리대장":
         else:
             st.info(t("no_ledger"))
 
+    # 서류 관리대장 초기화 기능
+    with st.container(border=True):
+        with st.expander("🚨 서류 관리대장 초기화"):
+            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_ledger_pwd")
+            if st.button(t("btn_reset"), key="btn_reset_ledger") and pwd_input == ADMIN_PASSWORD:
+                pd.DataFrame(columns=ledger_cols).to_csv(LEDGER_FILE, index=False)
+                st.success("서류 관리대장이 성공적으로 초기화되었습니다.")
+                st.rerun()
+
 # ==========================================
 # 8. 마스터 DB 관리
 # ==========================================
@@ -1690,6 +1700,21 @@ else:
                         st.download_button("💾 파일 다운로드", file_bytes, file_name=file_name, key=f"dl_in_{idx}")
         else:
             st.info("AI 문서 분석에 업로드된 인풋 문서가 없습니다.")
+
+    # 서류이력 초기화 기능
+    with st.container(border=True):
+        with st.expander("🚨 서류이력 초기화"):
+            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_history_pwd")
+            if st.button(t("btn_reset"), key="btn_reset_history") and pwd_input == ADMIN_PASSWORD:
+                for f in os.listdir("output"):
+                    if f.endswith('.pdf'):
+                        try: os.remove(os.path.join("output", f))
+                        except Exception: pass
+                for f in os.listdir(INPUT_DOCS_DIR):
+                    try: os.remove(os.path.join(INPUT_DOCS_DIR, f))
+                    except Exception: pass
+                st.success("서류이력이 성공적으로 초기화되었습니다.")
+                st.rerun()
 
 if is_running:
     time.sleep(1.0)
