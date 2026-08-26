@@ -51,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
+# 9번 & 10번 요구사항: 서류 관리대장 및 마스터 DB 열 순서 동일화 (Status 맨 뒤, OurRef 4번째)
 ledger_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
@@ -74,6 +74,15 @@ def clean_df(df):
         if df[col].dtype == 'object':
             df[col] = df[col].apply(clean_str)
     return df
+
+def ensure_cols(df, target_cols):
+    if df is None or df.empty:
+        return pd.DataFrame(columns=target_cols)
+    df = df.copy()
+    for col in target_cols:
+        if col not in df.columns:
+            df[col] = "-"
+    return df[target_cols]
 
 def get_exchange_rates():
     return {
@@ -151,7 +160,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         return selected
 
 # ==========================================
-# 0-2. i18n 다국어 사전
+# 0-2. i18n 다국어 사전 (11번: menu_history -> 서류이력)
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -385,7 +394,7 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 메인 상단 깔끔한 KR/EN 스위치 컬럼
+# 12번 요구사항: 상단 우측 위치 KR / EN 언어 선택 스위치 (100% 깔끔한 컬럼 배치)
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
@@ -445,6 +454,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
+# (요구사항 1: 헤더배치, 2: 품목우측정렬, 3: 박스공백축소, 4: 매페이지 상단반복, 5: 페이지번호 1/5, 6: 맑은고딕, 7: 선두께 슬림화)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -454,6 +464,7 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     
+    /* 5번: 페이지 번호 1/5 형식, 6번: 전체 맑은 고딕 폰트 적용, 4번: 매페이지 상단 헤더 반복 */
     @page { 
         size: A4; 
         margin: 28mm 8mm 15mm 8mm; 
@@ -468,44 +479,58 @@ INLINE_HTML_TEMPLATE = """
 
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
     
+    /* 4번: 모든 페이지 상단 반복 헤더 & 7번: 구분선 굵게 */
     div.repeat-header {
         position: running(repeat-header);
         width: 100%;
-        border-bottom: 2.5px solid #0F172A;
+        border-bottom: 2.5px solid #000;
         padding-bottom: 4px;
     }
     div.repeat-header .logo-img { height: 26px; vertical-align: middle; }
     div.repeat-header .company-name-small { font-size: 12pt; font-weight: 800; color: #0284C7; vertical-align: middle; }
     div.repeat-header .doc-type-right { float: right; font-size: 14pt; font-weight: 800; color: #0F172A; text-decoration: underline; letter-spacing: 1px; }
 
-    table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+    /* 7번: 표 테두리선은 0.6px로 슬림화 */
+    table { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
     th, td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     
+    /* 2번: Unit Price & Amount 헤더 및 데이터 우측 정렬 */
     .col-no { width: 5%; text-align: center; }
     .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
     .col-qty { width: 8%; text-align: center; }
-    .col-price { width: 16%; text-align: right; }
-    .col-amt { width: 16%; text-align: right; }
+    .col-price { width: 16%; text-align: right !important; }
+    .col-amt { width: 16%; text-align: right !important; }
     
-    .remarks-box { border: 0.6px solid #000; padding: 4px 6px; margin-top: 3px; font-size: 8.5pt; white-space: pre-line; font-style: italic; }
+    /* 3번: 하단 박스 여백/공백 상하 축소 */
+    .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; }
     .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
 
+    <!-- 4번: 매 페이지마다 반복되는 상단 헤더 영역 -->
     <div class="repeat-header">
-        {% if logo_base64 %}
-        <img class="logo-img" src="data:image/png;base64,{{ logo_base64 }}" />
-        {% else %}
-        <span class="company-name-small">ONE SOLUTION CO., LTD.</span>
-        {% endif %}
-        <span class="doc-type-right">{{ doc_title }}</span>
+        <table style="width: 100%; border: none; margin: 0; padding: 0;">
+            <tr>
+                <td style="width: 50%; border: none; text-align: left; padding: 0; vertical-align: middle;">
+                    {% if logo_base64 %}
+                    <img class="logo-img" src="data:image/png;base64,{{ logo_base64 }}" />
+                    {% else %}
+                    <span class="company-name-small">ONE SOLUTION CO., LTD.</span>
+                    {% endif %}
+                </td>
+                <td style="width: 50%; border: none; text-align: right; padding: 0; vertical-align: middle;">
+                    <span class="doc-type-right">{{ doc_title }}</span>
+                </td>
+            </tr>
+        </table>
     </div>
 
+    <!-- 1번 요구사항: 좌측(상대방)/우측(우리) 및 하단 Project Title 완벽 배열 -->
     <table>
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
@@ -540,8 +565,8 @@ INLINE_HTML_TEMPLATE = """
                 <td class="item-th col-no">No.</td>
                 <td class="item-th col-desc">Description (Model, Type, Serial No.)</td>
                 <td class="item-th col-qty">Q'ty</td>
-                <td class="item-th col-price">Unit Price</td>
-                <td class="item-th col-amt">Amount</td>
+                <td class="item-th col-price" style="text-align: right;">Unit Price</td>
+                <td class="item-th col-amt" style="text-align: right;">Amount</td>
             </tr>
         </thead>
         <tbody>
@@ -576,6 +601,7 @@ INLINE_HTML_TEMPLATE = """
     <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 2px;">{{ vat_note }}</div>
     {% endif %}
 
+    <!-- 3번: 하단 박스 공백 축소 -->
     {% if terms_conditions %}
     <div class="remarks-box">
         <strong><em>[Terms & Conditions]</em></strong><br>
@@ -594,7 +620,7 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 필수 도구 (KeyError 안전 방지)
+# 3. 환경 및 데이터 정제 필수 도구 (8번: 빈 행 제거 / 10번: KeyError 차단)
 # ==========================================
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
@@ -604,6 +630,7 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
+# 8번 요구사항: 빈 행(No. 9 등) 완전 자동 제거
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -618,6 +645,7 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         amt_val = safe_float(item.get('Amount', 0))
         rem = clean_str(item.get('Remarks', ''))
         
+        # 품목명, 설명, 수량, 금액 중 하나라도 작성된 행만 유효 품목으로 추출
         if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
             valid_items.append(item)
 
@@ -677,18 +705,14 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# 2번 KeyError 완벽 방지: 구 버전 DB/대장 파일 호환을 위한 컬럼 자동 채우기
+# 10번 KeyError 원천 방지: 구버전 CSV 파일 자동 보정
 db_init = safe_read_csv(DB_FILE, db_cols)
-for c in db_cols:
-    if c not in db_init.columns:
-        db_init[c] = "-"
-clean_df(db_init[db_cols]).to_csv(DB_FILE, index=False)
+db_init = ensure_cols(db_init, db_cols)
+clean_df(db_init).to_csv(DB_FILE, index=False)
 
 ledger_init = safe_read_csv(LEDGER_FILE, ledger_cols)
-for c in ledger_cols:
-    if c not in ledger_init.columns:
-        ledger_init[c] = "-"
-clean_df(ledger_init[ledger_cols]).to_csv(LEDGER_FILE, index=False)
+ledger_init = ensure_cols(ledger_init, ledger_cols)
+clean_df(ledger_init).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -708,6 +732,7 @@ def save_history(ship, to, attn):
 
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
+    ledger_df = ensure_cols(ledger_df, ledger_cols)
 
     issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     doc_date_str = doc_date_str or "-"
@@ -734,17 +759,14 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
     }])
 
     updated_df = pd.concat([ledger_df, new_entry], ignore_index=True)
-    for c in ledger_cols:
-        if c not in updated_df.columns: updated_df[c] = "-"
-    
-    updated_df[ledger_cols].to_csv(LEDGER_FILE, index=False)
+    updated_df = ensure_cols(updated_df, ledger_cols)
+    updated_df.to_csv(LEDGER_FILE, index=False)
 
 def safe_merge_db(existing_db, new_data_df):
     if new_data_df is None or new_data_df.empty: return existing_db
     combined = pd.concat([existing_db, new_data_df], ignore_index=True)
-    for col in ledger_cols:
-        if col not in combined.columns: combined[col] = '-'
-    return clean_df(combined[ledger_cols])
+    combined = ensure_cols(combined, ledger_cols)
+    return clean_df(combined)
 
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
@@ -1083,44 +1105,51 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
+        # 1번 요구사항: 입력 폼 좌/우 2컬럼 배치로 헤더 순서 완벽 일치
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
-            to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
-            attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
-            your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), [], "your_ref")
-            ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
-
-            curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
-            if "/" in curr_fc:
-                fc_parts = curr_fc.split("/", 1)
-                curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
-            else:
-                curr_flag, curr_class = curr_fc.strip(), ""
-
-            col_fc1, col_fc2 = st.columns(2)
-            with col_fc1:
-                sel_flag = render_unified_input("Flag", curr_flag, FLAG_OPTIONS, "flag")
-            with col_fc2:
-                sel_class = render_unified_input("Class", curr_class, CLASS_OPTIONS, "class")
-                
-            f_str = sel_flag if sel_flag and "Direct Input" not in sel_flag and "직접 입력" not in sel_flag else ""
-            c_str = sel_class if sel_class and "Direct Input" not in sel_class and "직접 입력" not in sel_class else ""
+            col_hdr_l, col_hdr_r = st.columns(2)
             
-            if f_str and c_str:
-                flag_class = f"{f_str} / {c_str}"
-            elif f_str:
-                flag_class = f_str
-            else:
-                flag_class = c_str
+            with col_hdr_l:
+                st.markdown("**[상대방 정보 / Recipient]**")
+                to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
+                attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
+                your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), [], "your_ref")
+                ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
 
-            pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')] if st.session_state.get('user_email') else [], "pic")
-            date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [datetime.now().strftime("%Y-%m-%d")], "date")
-            our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), [], "our_ref")
-            validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days", "90 Days"], "validity")
-            payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance", "60 Days Net"], "payment_due")
-            project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
+                curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
+                if "/" in curr_fc:
+                    fc_parts = curr_fc.split("/", 1)
+                    curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
+                else:
+                    curr_flag, curr_class = curr_fc.strip(), ""
 
+                col_fc1, col_fc2 = st.columns(2)
+                with col_fc1:
+                    sel_flag = render_unified_input("Flag", curr_flag, FLAG_OPTIONS, "flag")
+                with col_fc2:
+                    sel_class = render_unified_input("Class", curr_class, CLASS_OPTIONS, "class")
+                    
+                f_str = sel_flag if sel_flag and "Direct Input" not in sel_flag and "직접 입력" not in sel_flag else ""
+                c_str = sel_class if sel_class and "Direct Input" not in sel_class and "직접 입력" not in sel_class else ""
+                
+                if f_str and c_str:
+                    flag_class = f"{f_str} / {c_str}"
+                elif f_str:
+                    flag_class = f_str
+                else:
+                    flag_class = c_str
+
+            with col_hdr_r:
+                st.markdown("**[발신자 정보 / Issuer]**")
+                pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')] if st.session_state.get('user_email') else [], "pic")
+                date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [datetime.now().strftime("%Y-%m-%d")], "date")
+                our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), [], "our_ref")
+                validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days", "90 Days"], "validity")
+                payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance", "60 Days Net"], "payment_due")
+
+            project_title = render_unified_input("Project Title (하단 전체 한 줄)", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
             curr_currency = currency if currency else "KRW"
@@ -1266,6 +1295,7 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
+            # 8번 요구사항: 빈 행 자동 제거된 렌더링 목록 준비
             pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
@@ -1281,6 +1311,7 @@ if menu == "서류 통합 생성":
             realtime_pdf_bytes = generate_pdf(preview_ctx)
             file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
             
+            # 11번 서류이력 조회를 위한 자동 저장
             pdf_save_path = os.path.join("output", file_n)
             with open(pdf_save_path, "wb") as f:
                 f.write(realtime_pdf_bytes)
@@ -1351,20 +1382,17 @@ if menu == "서류 통합 생성":
                         st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장
+# 7. 서류 관리대장 (9번 요구사항: OurRef 4번째, Status 맨 뒤)
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
+    ledger_df = ensure_cols(ledger_df, ledger_cols)
+    
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
 
         if not ledger_df.empty:
-            ledger_df = clean_df(ledger_df)
-            
-            for col in ledger_cols:
-                if col not in ledger_df.columns:
-                    ledger_df[col] = "-"
-            ledger_df = ledger_df[ledger_cols]
+            ledger_df = clean_df(ledger_df[ledger_cols])
 
             status_counts = ledger_df["Status"].value_counts()
             
@@ -1409,6 +1437,7 @@ elif menu == "서류 관리대장":
 
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
 
+            # 9번: OurRef가 4번째, Status가 마지막 열로 정렬된 열 설정
             ledger_config = {
                 "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
                 "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
@@ -1437,14 +1466,12 @@ elif menu == "서류 관리대장":
             st.info(t("no_ledger"))
 
 # ==========================================
-# 8. 마스터 DB 관리
+# 8. 마스터 DB 관리 (10번 요구사항: 서류 관리대장과 동일 레이아웃)
 # ==========================================
 elif menu == "마스터 DB 관리":
-    db = clean_df(safe_read_csv(DB_FILE, db_cols))
-    for c in db_cols:
-        if c not in db.columns:
-            db[c] = "-"
-    db = db[db_cols]
+    db = safe_read_csv(DB_FILE, db_cols)
+    db = ensure_cols(db, db_cols)
+    db = clean_df(db)
     
     if task['status'] == 'completed' and task['type'] == 'db_parse':
         st.session_state['temp_db_upload'] = clean_df(task['result'])
@@ -1507,7 +1534,7 @@ elif menu == "마스터 DB 관리":
                 st.rerun()
 
 # ==========================================
-# 9. 서류이력
+# 9. 서류이력 (11번 요구사항: 제목 '서류이력' 및 바둑판식 갤러리 그리드 구현)
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 바둑판식 카드 그리드로 조회하고 확대할 수 있습니다.</p></div>""", unsafe_allow_html=True)
