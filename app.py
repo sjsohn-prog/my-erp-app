@@ -64,7 +64,23 @@ def safe_float(val, default=0.0):
             return default
     return default
 
-# CSV 파일 안전 로딩 헬퍼 함수 (EmptyDataError 방어)
+# 통화 코드별 통화 기호 추출 헬퍼 함수
+def get_currency_symbol(code):
+    c = clean_str(code).upper()
+    symbols = {
+        "USD": "$",
+        "KRW": "₩",
+        "EUR": "€",
+        "JPY": "¥",
+        "CNY": "¥",
+        "SGD": "S$",
+        "GBP": "£",
+        "HKD": "HK$",
+        "AED": "AED "
+    }
+    return symbols.get(c, f"{c} " if c else "")
+
+# CSV 파일 안전 로딩 헬퍼 함수
 def safe_read_csv(filepath, default_cols=None):
     if default_cols is None:
         default_cols = []
@@ -91,7 +107,6 @@ def get_exchange_rates():
     except Exception:
         return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23, "GBP": 0.79, "HKD": 7.8, "AED": 3.67}
 
-# 통화 코드별 USD 기준 비율 추출 헬퍼 함수
 def get_rate_per_usd(code, live_rates):
     c = clean_str(code).upper()
     if c == "USD": return 1.0
@@ -401,7 +416,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (로고+제목 일체형 헤더 & 이탤릭 박스 디자인)
+# 2. 내장형 PDF HTML 템플릿 (Remarks 품목 표 최하단 통합 반영)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -413,7 +428,6 @@ INLINE_HTML_TEMPLATE = """
     @page { size: A4; margin: 5mm 5mm; }
     body { font-family: 'Noto Sans KR', 'Malgun Gothic', 'Nanum Gothic', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
     
-    /* ⭐ [디자인 개편] 원솔루션 전용 상단 로고 + 서류 제목 통합 헤더 표 */
     .header-table { width: 100%; border-collapse: collapse; border: none; margin-bottom: 4px; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
@@ -431,13 +445,11 @@ INLINE_HTML_TEMPLATE = """
     .col-price { width: 16%; text-align: right; }
     .col-amt { width: 16%; text-align: right; }
     
-    /* ⭐ [이탤릭 스타일 일괄 적용] Remarks, Terms, Bank 박스 이탤릭화 */
     .remarks-box { border: 1.5px solid #000; padding: 6px 8px; margin-top: 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; }
     .total-row-td { border: 1.5px solid #000; font-weight: bold; font-size: 10pt; padding: 6px 8px; }
 </style>
 </head>
 <body>
-    <!-- ⭐ [일체형 상단 헤더] -->
     <table class="header-table">
         <tr>
             <td style="width: 45%; text-align: left;">
@@ -502,6 +514,15 @@ INLINE_HTML_TEMPLATE = """
                 <td class="col-amt">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
+            <!-- ⭐ [Remarks & Deviations 품목 표 내부 통합] -->
+            {% if bottom_remarks %}
+            <tr>
+                <td colspan="5" style="border: 1.5px solid #000; padding: 6px 8px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
+                    <strong><em>[Remarks & Deviations]</em></strong><br>
+                    {{ bottom_remarks | replace('\n', '<br>') }}
+                </td>
+            </tr>
+            {% endif %}
             {% if total_amount_str %}
             <tr>
                 <td colspan="3" class="total-row-td" style="border-right: none;"></td>
@@ -514,13 +535,6 @@ INLINE_HTML_TEMPLATE = """
 
     {% if vat_note %}
     <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 6px;">{{ vat_note }}</div>
-    {% endif %}
-
-    {% if bottom_remarks %}
-    <div class="remarks-box">
-        <strong><em>[Remarks & Deviations]</em></strong><br>
-        {{ bottom_remarks | replace('\n', '<br>') }}
-    </div>
     {% endif %}
 
     {% if terms_conditions %}
@@ -556,7 +570,9 @@ def clean_df(df):
         df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0", "nan.0"], "")
     return df
 
-def prepare_items_for_pdf(items_list):
+# ⭐ 통화 기호 자동 부착 처리 함수
+def prepare_items_for_pdf(items_list, currency="KRW"):
+    sym = get_currency_symbol(currency)
     formatted_items = []
     for item in items_list:
         item_copy = dict(item)
@@ -582,11 +598,14 @@ def prepare_items_for_pdf(items_list):
         u_p_val = safe_float(item_copy.get('UnitPrice', 0))
         amt_val = safe_float(item_copy.get('Amount', 0))
             
-        item_copy['UnitPriceFormatted'] = f"{u_p_val:,.2f}" if u_p_val > 0 else ""
+        fmt_up = f"{u_p_val:,.0f}" if currency in ["KRW", "JPY"] else f"{u_p_val:,.2f}"
+        fmt_amt = f"{amt_val:,.0f}" if currency in ["KRW", "JPY"] else f"{amt_val:,.2f}"
+
+        item_copy['UnitPriceFormatted'] = f"{sym}{fmt_up}" if u_p_val > 0 else ""
         if amt_val > 0:
-            item_copy['AmountFormatted'] = f"{amt_val:,.2f}"
+            item_copy['AmountFormatted'] = f"{sym}{fmt_amt}"
         elif amt_val == 0 and u_p_val > 0:
-            item_copy['AmountFormatted'] = "0"
+            item_copy['AmountFormatted'] = f"{sym}0"
         else:
             item_copy['AmountFormatted'] = ""
             
@@ -1111,9 +1130,10 @@ if menu == "서류 통합 생성":
 
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
-            # ⭐ [환율 자동 수치 재계산] 통화(Currency) 변경 시 단가 및 금액 자동 수치 환산
+            # ⭐ [환율 자동 수치 재계산] 통화(Currency) 변경 시 단가 및 금액 자동 수치 환산 (통화 기호 연동)
             curr_currency = currency if currency else "KRW"
             last_currency = st.session_state.get('last_currency', curr_currency)
+            curr_sym = get_currency_symbol(curr_currency)
 
             if last_currency and curr_currency != last_currency and last_currency != "":
                 rate_prev = get_rate_per_usd(last_currency, live_rates)
@@ -1128,10 +1148,12 @@ if menu == "서류 통합 생성":
                             amt = safe_float(row_c.get('Amount', 0))
                             if u_p > 0:
                                 new_up = round(u_p * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                df_items_conv.at[idx_c, 'UnitPrice'] = f"{new_up:,.2f}" if curr_currency != "KRW" else f"{new_up:,.0f}"
+                                fmt_up = f"{new_up:,.2f}" if curr_currency != "KRW" else f"{new_up:,.0f}"
+                                df_items_conv.at[idx_c, 'UnitPrice'] = f"{curr_sym}{fmt_up}"
                             if amt > 0:
                                 new_amt = round(amt * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                df_items_conv.at[idx_c, 'Amount'] = f"{new_amt:,.2f}" if curr_currency != "KRW" else f"{new_amt:,.0f}"
+                                fmt_amt = f"{new_amt:,.2f}" if curr_currency != "KRW" else f"{new_amt:,.0f}"
+                                df_items_conv.at[idx_c, 'Amount'] = f"{curr_sym}{fmt_amt}"
                         st.session_state['doc_items'] = clean_df(df_items_conv)
                         
             st.session_state['last_currency'] = curr_currency
@@ -1169,13 +1191,16 @@ if menu == "서류 통합 생성":
                             merged_amt = sum([safe_float(a) for a in target_rows['Amount']])
                             first_u_price = safe_float(target_rows.iloc[0]['UnitPrice'])
                             
+                            fmt_u_price = f"{first_u_price:,.2f}" if curr_currency != "KRW" else f"{first_u_price:,.0f}"
+                            fmt_m_amt = f"{merged_amt:,.2f}" if curr_currency != "KRW" else f"{merged_amt:,.0f}"
+
                             merged_row = {
                                 "PartNo": merged_pno,
                                 "ItemName": merged_iname,
                                 "Description": merged_desc,
                                 "Qty": f"{int(merged_qty)}" if merged_qty == int(merged_qty) and merged_qty > 0 else (f"{merged_qty}" if merged_qty > 0 else ""),
-                                "UnitPrice": f"{first_u_price:,.2f}" if first_u_price > 0 else "",
-                                "Amount": f"{merged_amt:,.2f}" if merged_amt > 0 else "",
+                                "UnitPrice": f"{curr_sym}{fmt_u_price}" if first_u_price > 0 else "",
+                                "Amount": f"{curr_sym}{fmt_m_amt}" if merged_amt > 0 else "",
                                 "Remarks": merged_remarks
                             }
                             
@@ -1245,7 +1270,8 @@ if menu == "서류 통합 생성":
                 amt_curr = safe_float(row.get('Amount', ''))
                 if amt_curr == 0.0 and u_price > 0 and qty > 0:
                     calc_amt = qty * u_price
-                    df_current.at[i, 'Amount'] = f"{calc_amt:,.2f}" if curr_currency != "KRW" else f"{calc_amt:,.0f}"
+                    fmt_a = f"{calc_amt:,.2f}" if curr_currency != "KRW" else f"{calc_amt:,.0f}"
+                    df_current.at[i, 'Amount'] = f"{curr_sym}{fmt_a}"
 
             edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
@@ -1268,20 +1294,15 @@ if menu == "서류 통합 생성":
                     if u_p_curr == 0.0:
                         u_p = safe_float(match_row.get('UnitPrice', 0.0))
                         if u_p > 0:
-                            edited_df.at[i, 'UnitPrice'] = f"{u_p:,.2f}" if curr_currency != "KRW" else f"{u_p:,.0f}"
+                            fmt_u = f"{u_p:,.2f}" if curr_currency != "KRW" else f"{u_p:,.0f}"
+                            edited_df.at[i, 'UnitPrice'] = f"{curr_sym}{fmt_u}"
 
             edited_df = clean_df(edited_df)
 
             # ⭐ [Total Amount 자동 계산 & 100% 수동 수정 UI]
             calc_total_val = edited_df["Amount"].apply(safe_float).sum()
-            curr_symbol = currency if currency else "KRW"
-            
-            if curr_symbol == "USD":
-                default_total_str = f"US${calc_total_val:,.2f}"
-            elif curr_symbol == "KRW":
-                default_total_str = f"KRW {calc_total_val:,.0f}"
-            else:
-                default_total_str = f"{curr_symbol} {calc_total_val:,.2f}"
+            fmt_tot = f"{calc_total_val:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{calc_total_val:,.0f}"
+            default_total_str = f"{curr_sym}{fmt_tot}"
 
             col_tot1, col_tot2 = st.columns([1, 1])
             with col_tot1:
@@ -1301,7 +1322,6 @@ if menu == "서류 통합 생성":
                 converted_val_krw = (calc_total_val / src_rate) * usd_krw if src_rate > 0 else 0
                 st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
 
-            # ⭐ [독립 네모 박스 렌더링 및 동적 입력 UI]
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed", key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
@@ -1370,7 +1390,7 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
+            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=currency or "KRW")
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
