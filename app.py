@@ -346,11 +346,14 @@ custom_css = """
         gap: 10px !important;
     }
 
-    /* 파일 업로드 칩 옆의 '+' 버튼 숨기기 */
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] ~ button {
-        display: none !important;
-    }
+    /* 파일 업로드 칩 옆의 '+' 버튼 완전 숨기기 */
+div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
+div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
+div[data-testid="stFileUploaderDropzone"] + div button {
+    display: none !important;
+}
 
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
@@ -1228,7 +1231,13 @@ if menu == "자사 서류 생성":
         with st.expander(t("ai_expander_title"), expanded=False):
             ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
-            uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running)
+            uploaded_doc = st.file_uploader(
+    t("upload_doc_label"), 
+    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
+    accept_multiple_files=False, 
+    disabled=is_running
+)
+```[cite: 1]
             if uploaded_doc and st.button(t("btn_ai_parse"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'doc_parse'
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode))
@@ -1620,7 +1629,14 @@ elif menu == "자사 서류 DB 관리":
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="our_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running, key="our_db_uploader")
+        uploaded_db_file = st.file_uploader(
+    t("upload_db_label"), 
+    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
+    accept_multiple_files=False, 
+    disabled=is_running, 
+    key="our_db_uploader"
+)
+```[cite: 1]
         
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
@@ -1749,7 +1765,14 @@ elif menu == "고객사 서류 DB 관리":
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="cust_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running, key="cust_db_uploader")
+        uploaded_db_file = st.file_uploader(
+    t("upload_db_label"), 
+    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
+    accept_multiple_files=False, 
+    disabled=is_running, 
+    key="cust_db_uploader"
+)
+```[cite: 1]
         
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
