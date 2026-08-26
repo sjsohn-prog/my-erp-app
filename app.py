@@ -51,68 +51,6 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 안전한 숫자 변환 헬퍼 함수
-def safe_float(val, default=0.0):
-    if val is None or pd.isna(val):
-        return default
-    s = str(val).replace(',', '').strip()
-    match = re.search(r"[-+]?\d*\.\d+|\d+", s)
-    if match:
-        try:
-            return float(match.group())
-        except ValueError:
-            return default
-    return default
-
-# 통화 기호 추출 헬퍼 함수
-def get_currency_symbol(code):
-    c = clean_str(code).upper()
-    symbols = {
-        "USD": "$", "KRW": "₩", "EUR": "€", "JPY": "¥",
-        "CNY": "¥", "SGD": "S$", "GBP": "£", "HKD": "HK$", "AED": "AED "
-    }
-    return symbols.get(c, f"{c} " if c else "")
-
-# CSV 파일 안전 로딩 (EmptyDataError 방어)
-def safe_read_csv(filepath, default_cols=None):
-    if default_cols is None:
-        default_cols = []
-    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
-        return pd.DataFrame(columns=default_cols)
-    try:
-        df = pd.read_csv(filepath)
-        if df.empty:
-            return pd.DataFrame(columns=default_cols)
-        return df
-    except (pd.errors.EmptyDataError, Exception):
-        return pd.DataFrame(columns=default_cols)
-
-# 실시간 환율 정보 조회 함수
-@st.cache_data(ttl=3600)
-def get_exchange_rates():
-    try:
-        url = "https://open.er-api.com/v6/latest/USD"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            rates = data.get("rates", {})
-            return rates
-    except Exception:
-        return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23, "GBP": 0.79, "HKD": 7.8, "AED": 3.67}
-
-def get_rate_per_usd(code, live_rates):
-    c = clean_str(code).upper()
-    if c == "USD": return 1.0
-    if c == "KRW": return safe_float(live_rates.get("KRW", 1350.0))
-    if c == "EUR": return safe_float(live_rates.get("EUR", 0.92))
-    if c == "SGD": return safe_float(live_rates.get("SGD", 1.35))
-    if c == "JPY": return safe_float(live_rates.get("JPY", 155.0))
-    if c == "CNY": return safe_float(live_rates.get("CNY", 7.23))
-    if c == "GBP": return safe_float(live_rates.get("GBP", 0.79))
-    if c == "HKD": return safe_float(live_rates.get("HKD", 7.8))
-    if c == "AED": return safe_float(live_rates.get("AED", 3.67))
-    return 1.0
-
 # ==========================================
 # 0-1. i18n 다국어 사전
 # ==========================================
@@ -404,7 +342,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (미니 헤더 & 페이지 번호 추가)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -413,25 +351,18 @@ INLINE_HTML_TEMPLATE = """
 <meta charset="UTF-8">
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-    
-    /* ⭐ 페이지 여백 및 반복 디자인 (머리글/바닥글) 설정 */
     @page { 
         size: A4; 
-        margin: 25mm 8mm 15mm 8mm; /* 다중 페이지 상단 여백 확보 */
-        
-        /* 페이지 하단 중앙 번호표 */
+        margin: 25mm 8mm 15mm 8mm; 
         @bottom-center {
             content: "- " counter(page) " -";
             font-size: 9pt; color: #666; font-family: 'Noto Sans KR', sans-serif;
         }
-        
-        /* 2페이지부터 반복될 상단 미니 헤더 위치 */
         @top-center {
             content: element(repeat-header);
         }
     }
     
-    /* 첫 페이지는 고유의 큰 헤더가 있으므로 반복 헤더 숨김 및 여백 조정 */
     @page :first { 
         margin-top: 8mm; 
         @top-center { content: none; } 
@@ -439,7 +370,6 @@ INLINE_HTML_TEMPLATE = """
 
     body { font-family: 'Noto Sans KR', 'Malgun Gothic', 'Nanum Gothic', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
     
-    /* ⭐ 반복 미니 헤더 컨테이너 요소 */
     div.repeat-header {
         position: running(repeat-header);
         width: 100%;
@@ -451,7 +381,6 @@ INLINE_HTML_TEMPLATE = """
     div.repeat-header .company-name-small { font-size: 11pt; font-weight: 800; color: #0284C7; font-family: sans-serif; vertical-align: middle; }
     div.repeat-header .doc-type-small { float: right; font-size: 9pt; font-weight: bold; color: #555; padding-top: 4px; letter-spacing: 1px; text-transform: uppercase; }
 
-    /* 첫 페이지 대형 헤더 요소 */
     .header-table { width: 100%; border-collapse: collapse; border: none; margin-bottom: 4px; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
@@ -475,7 +404,6 @@ INLINE_HTML_TEMPLATE = """
 </head>
 <body>
 
-    <!-- ⭐ 반복 미니 헤더 블록 (2페이지부터 나타남) -->
     <div class="repeat-header">
         {% if logo_base64 %}
         <img src="data:image/png;base64,{{ logo_base64 }}" />
@@ -485,7 +413,6 @@ INLINE_HTML_TEMPLATE = """
         <span class="doc-type-small">{{ doc_title }}{% if our_ref %} | {{ our_ref }}{% endif %}</span>
     </div>
 
-    <!-- 첫 페이지 메인 타이틀 블록 -->
     <table class="header-table">
         <tr>
             <td style="width: 45%; text-align: left;">
@@ -590,8 +517,46 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 도구
+# 3. 환경 및 데이터 정제 필수 도구 (최상단 순서 보장)
 # ==========================================
+# ⭐ [에러 완전 방지] 최상단 배치된 기본 텍스트 정제 및 유틸리티 함수들
+def clean_str(val):
+    if pd.isna(val) or val is None: return ""
+    s = str(val).strip()
+    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
+
+def render_unified_input(label, current_val, base_options, key_prefix):
+    display_label = f"▾ {label}" if not label.startswith("▾") else label
+    curr = clean_str(current_val)
+    direct_label = "✏️ 직접 입력 / Direct Input"
+    
+    options = [""]
+    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
+        options.append(curr)
+        
+    for item in base_options:
+        s_item = clean_str(item)
+        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
+            options.append(s_item)
+            
+    options.append(direct_label)
+    
+    sel_key = f"{key_prefix}_sel"
+    txt_key = f"{key_prefix}_txt"
+    
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = curr if curr in options else ""
+    elif st.session_state[sel_key] not in options:
+        options.insert(1, st.session_state[sel_key])
+
+    selected = st.selectbox(display_label, options=options, key=sel_key)
+    
+    if selected == direct_label:
+        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
+        return val
+    else:
+        return selected
+
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
 HISTORY_FILE = "master_history.json"
@@ -749,47 +714,14 @@ if 'doc_info' not in st.session_state:
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
-def render_unified_input(label, current_val, base_options, key_prefix):
-    display_label = f"▾ {label}" if not label.startswith("▾") else label
-    curr = clean_str(current_val)
-    direct_label = "✏️ 직접 입력 / Direct Input"
-    
-    options = [""]
-    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
-        options.append(curr)
-        
-    for item in base_options:
-        s_item = clean_str(item)
-        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
-            options.append(s_item)
-            
-    options.append(direct_label)
-    
-    sel_key = f"{key_prefix}_sel"
-    txt_key = f"{key_prefix}_txt"
-    
-    if sel_key not in st.session_state:
-        st.session_state[sel_key] = curr if curr in options else ""
-    elif st.session_state[sel_key] not in options:
-        options.insert(1, st.session_state[sel_key])
-
-    selected = st.selectbox(display_label, options=options, key=sel_key)
-    
-    if selected == direct_label:
-        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
-        return val
-    else:
-        return selected
-
 # ==========================================
-# 4. AI 파싱 엔진 (Gemini 3.6 Flash 모델 고정)
+# 4. AI 파싱 엔진 (Gemini 3.6 Flash 단일 고정)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    # ⭐ 구버전 fallback 제거, 명확한 gemini-3.6-flash 엔진 고정
     if mode == "thinking":
         candidate_models = ['gemini-3.6-flash-thinking', 'gemini-3.6-flash', 'gemini-2.5-flash']
     else:
@@ -904,6 +836,31 @@ def start_bg_thread(target_func, args):
     add_script_run_ctx(t)
     t.start()
 
+def generate_pdf(context):
+    from weasyprint import HTML
+    logo_path = os.path.abspath("logo.png")
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f: context["logo_base64"] = base64.b64encode(f.read()).decode('utf-8')
+    else: context["logo_base64"] = None
+    
+    env = Environment()
+    template = env.from_string(INLINE_HTML_TEMPLATE)
+    html_out = template.render(context)
+    
+    pdf_bytes = HTML(string=html_out).write_pdf()
+    return pdf_bytes
+
+def render_pdf_images(pdf_bytes):
+    images = []
+    try:
+        import fitz
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        for page in doc:
+            pix = page.get_pixmap(dpi=150)
+            images.append(pix.tobytes("png"))
+    except Exception: pass
+    return images
+
 # ==========================================
 # 5. UI 및 사이드바
 # ==========================================
@@ -941,7 +898,6 @@ elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
 elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
 else: menu = "발행 이력 조회"
 
-# ⭐ 메뉴 변경 시 기존 에러 잔상 깔끔하게 지우기
 if 'current_menu' not in st.session_state:
     st.session_state['current_menu'] = menu
 elif st.session_state['current_menu'] != menu:
