@@ -72,7 +72,7 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
-        "items_title": "📦 품목 상세 내역 (표 내부를 직접 클릭하여 수정/입력 가능)",
+        "items_title": "📦 품목 상세 내역 (열 너비 자동 맞춤 / 직접 입력 지원)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 관리대장 및 DB 등록",
         "pwd_save_label": "🔒 비밀번호",
@@ -127,7 +127,7 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
-        "items_title": "📦 Line Item Details (Click table cells directly to edit)",
+        "items_title": "📦 Line Item Details (Auto-fit columns / Direct edit)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 Save to Ledger & Master DB",
         "pwd_save_label": "🔒 Password",
@@ -469,6 +469,21 @@ def prepare_items_for_pdf(items_list):
         item_copy['Description'] = desc
         item_copy['Remarks'] = rem
         
+        # ⭐ Qty 정제: 미입력/디폴트 상태일 때는 빈칸, 입력값이 있을 때는 0을 포함하여 정수 표기
+        qty_raw = item_copy.get('Qty', '')
+        qty_str = str(qty_raw).strip() if qty_raw is not None else ''
+        if qty_str in ['', 'nan', 'NaN', 'None', 'null', '<NA>', 'none']:
+            item_copy['Qty'] = ''
+        else:
+            try:
+                q_val = float(qty_str.replace(',', ''))
+                if q_val == int(q_val):
+                    item_copy['Qty'] = f"{int(q_val)}"
+                else:
+                    item_copy['Qty'] = f"{q_val}"
+            except (ValueError, TypeError):
+                item_copy['Qty'] = qty_str
+
         u_p = item_copy.get('UnitPrice', 0)
         try:
             u_p_val = float(str(u_p).replace(',', '').strip()) if str(u_p).strip() else 0.0
@@ -559,8 +574,9 @@ def safe_merge_db(existing_db, new_data_df):
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
+# ⭐ 초기 기본 수량(Qty)은 0 대신 빈칸("")으로 세팅
 if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
 def generate_pdf(context):
     from weasyprint import HTML
@@ -700,7 +716,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
                     "PartNo": "", 
                     "ItemName": "", 
                     "Description": "", 
-                    "Qty": 0, 
+                    "Qty": "", 
                     "UnitPrice": 0.0, 
                     "Amount": 0.0, 
                     "Remarks": ""
@@ -861,7 +877,8 @@ if menu == "서류 통합 생성":
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
         if not items_df.empty:
             for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
-                if req_col not in items_df.columns: items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else 0
+                if req_col not in items_df.columns:
+                    items_df[req_col] = "" if req_col not in ["UnitPrice", "Amount"] else 0.0
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
@@ -890,7 +907,8 @@ if menu == "서류 통합 생성":
                     if not iname: items_df.at[idx, 'ItemName'] = clean_str(m.get('ItemName', ''))
                     if not desc: items_df.at[idx, 'Description'] = clean_str(m.get('Description', ''))
                 
-                qty_val = float(row.get('Qty', 0)) if row.get('Qty') else 0
+                q_raw = clean_str(row.get('Qty', ''))
+                qty_val = float(q_raw) if q_raw else 0.0
                 unit_p_val = float(row.get('UnitPrice', 0.0)) if row.get('UnitPrice') else 0.0
                 if float(row.get('Amount', 0.0)) == 0.0:
                     items_df.at[idx, 'Amount'] = qty_val * unit_p_val
@@ -913,7 +931,7 @@ if menu == "서류 통합 생성":
         # 초기화 버튼
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
             
             for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
                 st.session_state[f"{key_prefix}_sel"] = ""
@@ -966,28 +984,30 @@ if menu == "서류 통합 생성":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            # ⭐ 100% 인간 수정을 위해 모든 자재 컬럼을 자유 텍스트(TextColumn)로 구성
+            # ⭐ 열 너비(width) 고정 프리셋을 제거하여 content 및 header 길이에 맞춰 핏(Fit)하게 자동 조절
             column_config = {
-                "PartNo": st.column_config.TextColumn("PartNo", width="small", help="직접 클릭하여 입력/수정"),
-                "ItemName": st.column_config.TextColumn("Item Name", width="medium", help="직접 클릭하여 입력/수정"),
-                "Description": st.column_config.TextColumn("Description", width="large", help="직접 클릭하여 입력/수정"),
-                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0, width="small"),
-                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width="medium"),
-                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width="medium"),
-                "Remarks": st.column_config.TextColumn("Remarks", width="small", help="직접 클릭하여 입력/수정"),
+                "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
+                "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정"),
+                "Description": st.column_config.TextColumn("Description", help="직접 클릭하여 입력/수정"),
+                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0),
+                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
+                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
+                "Remarks": st.column_config.TextColumn("Remarks", help="직접 클릭하여 입력/수정"),
             }
 
             df_current = clean_df(st.session_state['doc_items'].copy())
             
             cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             for c in cols_order:
-                if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else 0
+                if c not in df_current.columns:
+                    df_current[c] = "" if c not in ["UnitPrice", "Amount"] else 0.0
             df_current = clean_df(df_current[cols_order])
 
             # 금액 자동 연산
             for i, row in df_current.iterrows():
                 try:
-                    qty = float(row.get('Qty', 0))
+                    q_raw = clean_str(row.get('Qty', ''))
+                    qty = float(q_raw) if q_raw else 0.0
                     u_price = float(str(row.get('UnitPrice', 0)).replace(',', ''))
                     if float(str(row.get('Amount', 0)).replace(',', '')) == 0.0 and u_price > 0:
                         df_current.at[i, 'Amount'] = qty * u_price
