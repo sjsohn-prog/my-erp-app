@@ -401,7 +401,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (독립된 Terms & Bank 박스 추가)
+# 2. 내장형 PDF HTML 템플릿 (로고+제목 일체형 헤더 & 이탤릭 박스 디자인)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -412,8 +412,14 @@ INLINE_HTML_TEMPLATE = """
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     @page { size: A4; margin: 5mm 5mm; }
     body { font-family: 'Noto Sans KR', 'Malgun Gothic', 'Nanum Gothic', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
-    .title { text-align: center; font-size: 20pt; font-weight: bold; text-decoration: underline; margin-bottom: 14px; text-transform: uppercase; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    
+    /* ⭐ [디자인 개편] 원솔루션 전용 상단 로고 + 서류 제목 통합 헤더 표 */
+    .header-table { width: 100%; border-collapse: collapse; border: none; margin-bottom: 4px; }
+    .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
+    .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
+    .header-divider { border-bottom: 2.5px solid #0F172A; margin-bottom: 10px; margin-top: 6px; }
+
+    table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
     th, td { border: 1.5px solid #000; padding: 4px 6px; vertical-align: middle; }
     .hdr-label { width: 15%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 35%; font-size: 8.5pt; }
@@ -424,17 +430,29 @@ INLINE_HTML_TEMPLATE = """
     .col-qty { width: 8%; text-align: center; }
     .col-price { width: 16%; text-align: right; }
     .col-amt { width: 16%; text-align: right; }
-    .remarks-box { border: 1.5px solid #000; padding: 6px 8px; margin-top: 6px; font-size: 8.5pt; white-space: pre-line; }
+    
+    /* ⭐ [이탤릭 스타일 일괄 적용] Remarks, Terms, Bank 박스 이탤릭화 */
+    .remarks-box { border: 1.5px solid #000; padding: 6px 8px; margin-top: 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; }
+    .total-row-td { border: 1.5px solid #000; font-weight: bold; font-size: 10pt; padding: 6px 8px; }
 </style>
 </head>
 <body>
-    {% if logo_base64 %}
-    <div style="text-align: left; margin-bottom: 10px;">
-        <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 55px;" />
-    </div>
-    {% endif %}
-    
-    <div class="title">{{ doc_title }}</div>
+    <!-- ⭐ [일체형 상단 헤더] -->
+    <table class="header-table">
+        <tr>
+            <td style="width: 45%; text-align: left;">
+                {% if logo_base64 %}
+                <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 52px;" />
+                {% else %}
+                <span style="font-size: 16pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
+                {% endif %}
+            </td>
+            <td style="width: 55%; text-align: right;">
+                <div class="doc-title-text">{{ doc_title }}</div>
+            </td>
+        </tr>
+    </table>
+    <div class="header-divider"></div>
     
     <table>
         <tr>
@@ -484,26 +502,37 @@ INLINE_HTML_TEMPLATE = """
                 <td class="col-amt">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
+            {% if total_amount_str %}
+            <tr>
+                <td colspan="3" class="total-row-td" style="border-right: none;"></td>
+                <td class="total-row-td" style="text-align: center; background-color: #f4f4f4; border-left: 1.5px solid #000;">Total Amount</td>
+                <td class="total-row-td" style="text-align: right; font-size: 11pt; font-weight: bold;">{{ total_amount_str }}</td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
 
+    {% if vat_note %}
+    <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 6px;">{{ vat_note }}</div>
+    {% endif %}
+
     {% if bottom_remarks %}
     <div class="remarks-box">
-        <strong>[Remarks & Deviations]</strong><br>
+        <strong><em>[Remarks & Deviations]</em></strong><br>
         {{ bottom_remarks | replace('\n', '<br>') }}
     </div>
     {% endif %}
 
     {% if terms_conditions %}
     <div class="remarks-box">
-        <strong>[Terms & Conditions]</strong><br>
+        <strong><em>[Terms & Conditions]</em></strong><br>
         {{ terms_conditions | replace('\n', '<br>') }}
     </div>
     {% endif %}
 
     {% if bank_info %}
     <div class="remarks-box">
-        <strong>[Bank Account Information]</strong><br>
+        <strong><em>[Bank Account Information]</em></strong><br>
         {{ bank_info | replace('\n', '<br>') }}
     </div>
     {% endif %}
@@ -665,7 +694,7 @@ if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
 if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 def generate_pdf(context):
     from weasyprint import HTML
@@ -805,8 +834,8 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
                     "ItemName": "", 
                     "Description": "", 
                     "Qty": "", 
-                    "UnitPrice": 0.0, 
-                    "Amount": 0.0, 
+                    "UnitPrice": "", 
+                    "Amount": "", 
                     "Remarks": ""
                 }}
             ]
@@ -981,7 +1010,7 @@ if menu == "서류 통합 생성":
         if not items_df.empty:
             for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
                 if req_col not in items_df.columns:
-                    items_df[req_col] = "" if req_col not in ["UnitPrice", "Amount"] else 0.0
+                    items_df[req_col] = ""
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
@@ -1012,7 +1041,7 @@ if menu == "서류 통합 생성":
                 q_raw = clean_str(row.get('Qty', ''))
                 qty_val = safe_float(q_raw, default=0.0)
                 unit_p_val = safe_float(row.get('UnitPrice', 0.0))
-                if safe_float(row.get('Amount', 0.0)) == 0.0:
+                if safe_float(row.get('Amount', 0.0)) == 0.0 and unit_p_val > 0:
                     items_df.at[idx, 'Amount'] = qty_val * unit_p_val
             st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
@@ -1032,7 +1061,7 @@ if menu == "서류 통합 생성":
 
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
             
             for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
@@ -1082,7 +1111,7 @@ if menu == "서류 통합 생성":
 
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
-            # ⭐ [환율 자동 변환 로직] 통화(Currency) 변경 시 품목 단가 및 금액 자동 수치 환산
+            # ⭐ [환율 자동 수치 재계산] 통화(Currency) 변경 시 단가 및 금액 자동 수치 환산
             curr_currency = currency if currency else "KRW"
             last_currency = st.session_state.get('last_currency', curr_currency)
 
@@ -1099,10 +1128,10 @@ if menu == "서류 통합 생성":
                             amt = safe_float(row_c.get('Amount', 0))
                             if u_p > 0:
                                 new_up = round(u_p * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                df_items_conv.at[idx_c, 'UnitPrice'] = new_up
+                                df_items_conv.at[idx_c, 'UnitPrice'] = f"{new_up:,.2f}" if curr_currency != "KRW" else f"{new_up:,.0f}"
                             if amt > 0:
                                 new_amt = round(amt * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                df_items_conv.at[idx_c, 'Amount'] = new_amt
+                                df_items_conv.at[idx_c, 'Amount'] = f"{new_amt:,.2f}" if curr_currency != "KRW" else f"{new_amt:,.0f}"
                         st.session_state['doc_items'] = clean_df(df_items_conv)
                         
             st.session_state['last_currency'] = curr_currency
@@ -1113,7 +1142,7 @@ if menu == "서류 통합 생성":
             cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             for c in cols_order:
                 if c not in df_current.columns:
-                    df_current[c] = "" if c not in ["UnitPrice", "Amount"] else 0.0
+                    df_current[c] = ""
             df_current = clean_df(df_current[cols_order])
 
             # 수동 행 합치기 / 나누기 도구
@@ -1145,8 +1174,8 @@ if menu == "서류 통합 생성":
                                 "ItemName": merged_iname,
                                 "Description": merged_desc,
                                 "Qty": f"{int(merged_qty)}" if merged_qty == int(merged_qty) and merged_qty > 0 else (f"{merged_qty}" if merged_qty > 0 else ""),
-                                "UnitPrice": first_u_price,
-                                "Amount": merged_amt,
+                                "UnitPrice": f"{first_u_price:,.2f}" if first_u_price > 0 else "",
+                                "Amount": f"{merged_amt:,.2f}" if merged_amt > 0 else "",
                                 "Remarks": merged_remarks
                             }
                             
@@ -1185,8 +1214,8 @@ if menu == "서류 통합 생성":
                                         "ItemName": clean_str(target_row['ItemName']) if idx_l == 0 else "",
                                         "Description": line,
                                         "Qty": clean_str(target_row['Qty']) if idx_l == 0 else "",
-                                        "UnitPrice": safe_float(target_row['UnitPrice']) if idx_l == 0 else 0.0,
-                                        "Amount": safe_float(target_row['Amount']) if idx_l == 0 else 0.0,
+                                        "UnitPrice": clean_str(target_row['UnitPrice']) if idx_l == 0 else "",
+                                        "Amount": clean_str(target_row['Amount']) if idx_l == 0 else "",
                                         "Remarks": clean_str(target_row['Remarks']) if idx_l == 0 else ""
                                     })
                                 
@@ -1199,27 +1228,26 @@ if menu == "서류 통합 생성":
                                 st.success(f"행이 {len(lines)}개의 개별 행으로 나누어졌습니다.")
                                 st.rerun()
 
+            # ⭐ [디폴트 빈칸 유지] 모든 컬럼을 자유 텍스트형(TextColumn)으로 세팅하여 None/0.00 출현 원천 차단
             column_config = {
                 "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
                 "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
                 "Description": st.column_config.TextColumn("Description", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
-                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0),
-                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,.2f", min_value=0),
-                "Amount": st.column_config.NumberColumn("Amount", format="%,.2f", min_value=0),
+                "Qty": st.column_config.TextColumn("Q'ty", help="직접 클릭하여 입력/수정"),
+                "UnitPrice": st.column_config.TextColumn("Unit Price", help="직접 클릭하여 입력/수정"),
+                "Amount": st.column_config.TextColumn("Amount", help="직접 클릭하여 입력/수정"),
                 "Remarks": st.column_config.TextColumn("Remarks", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
             }
 
             for i, row in df_current.iterrows():
                 qty = safe_float(row.get('Qty', ''))
-                u_price = safe_float(row.get('UnitPrice', 0))
-                amt_curr = safe_float(row.get('Amount', 0))
-                if amt_curr == 0.0 and u_price > 0:
-                    df_current.at[i, 'Amount'] = qty * u_price
+                u_price = safe_float(row.get('UnitPrice', ''))
+                amt_curr = safe_float(row.get('Amount', ''))
+                if amt_curr == 0.0 and u_price > 0 and qty > 0:
+                    calc_amt = qty * u_price
+                    df_current.at[i, 'Amount'] = f"{calc_amt:,.2f}" if curr_currency != "KRW" else f"{calc_amt:,.0f}"
 
-            edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
-
-            edited_df['UnitPrice'] = edited_df['UnitPrice'].apply(safe_float)
-            edited_df['Amount'] = edited_df['Amount'].apply(safe_float)
+            edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
             for i, row in edited_df.iterrows():
                 pno = clean_str(row.get('PartNo'))
@@ -1236,26 +1264,42 @@ if menu == "서류 통합 생성":
                     if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
                     if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
                     
-                    u_p_curr = safe_float(row.get('UnitPrice', 0))
+                    u_p_curr = safe_float(row.get('UnitPrice', ''))
                     if u_p_curr == 0.0:
                         u_p = safe_float(match_row.get('UnitPrice', 0.0))
-                        edited_df.at[i, 'UnitPrice'] = u_p
+                        if u_p > 0:
+                            edited_df.at[i, 'UnitPrice'] = f"{u_p:,.2f}" if curr_currency != "KRW" else f"{u_p:,.0f}"
 
             edited_df = clean_df(edited_df)
 
-            if "Amount" in edited_df.columns:
-                total_val = edited_df["Amount"].apply(safe_float).sum()
-                curr_symbol = currency if currency else "KRW"
-                st.markdown(f'<div class="total-badge">Total Amount: {curr_symbol} {total_val:,.2f}</div>', unsafe_allow_html=True)
-                
-                if curr_symbol == "KRW":
-                    converted_val = total_val / usd_krw if usd_krw else 0
-                    st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
-                else:
-                    src_rate = get_rate_per_usd(curr_symbol, live_rates)
-                    converted_val_krw = (total_val / src_rate) * usd_krw if src_rate > 0 else 0
-                    st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
-            else: total_val = 0.0
+            # ⭐ [Total Amount 자동 계산 & 100% 수동 수정 UI]
+            calc_total_val = edited_df["Amount"].apply(safe_float).sum()
+            curr_symbol = currency if currency else "KRW"
+            
+            if curr_symbol == "USD":
+                default_total_str = f"US${calc_total_val:,.2f}"
+            elif curr_symbol == "KRW":
+                default_total_str = f"KRW {calc_total_val:,.0f}"
+            else:
+                default_total_str = f"{curr_symbol} {calc_total_val:,.2f}"
+
+            col_tot1, col_tot2 = st.columns([1, 1])
+            with col_tot1:
+                custom_total_input = st.text_input("Total Amount (자동 계산 / 수정 가능)", value=default_total_str, key="custom_total_input")
+            with col_tot2:
+                vat_note_input = st.text_input("VAT 하단 안내 문구 (수정/삭제 가능)", value="(Excl. VAT 10%)", key="vat_note_input")
+
+            final_total_str = custom_total_input.strip() if custom_total_input.strip() else default_total_str
+            vat_note_str = vat_note_input.strip()
+
+            # 이중 통화 환산 배지
+            if curr_symbol == "KRW":
+                converted_val = calc_total_val / usd_krw if usd_krw else 0
+                st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
+            else:
+                src_rate = get_rate_per_usd(curr_symbol, live_rates)
+                converted_val_krw = (calc_total_val / src_rate) * usd_krw if src_rate > 0 else 0
+                st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
 
             # ⭐ [독립 네모 박스 렌더링 및 동적 입력 UI]
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
@@ -1317,7 +1361,7 @@ if menu == "서류 통합 생성":
                     db_items['UnitPrice'] = db_items['UnitPrice'].apply(safe_float)
                     safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
                     
-                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user_email)
+                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), current_user_email)
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user_email))
 
@@ -1333,7 +1377,9 @@ if menu == "서류 통합 생성":
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
                 "items": pdf_formatted_items, "bottom_remarks": bottom_remarks,
                 "terms_conditions": terms_conditions if show_terms else "",
-                "bank_info": bank_info if show_bank else ""
+                "bank_info": bank_info if show_bank else "",
+                "total_amount_str": final_total_str,
+                "vat_note": vat_note_str
             }
             
             realtime_pdf_bytes = generate_pdf(preview_ctx)
@@ -1375,7 +1421,7 @@ if menu == "서류 통합 생성":
                         - Vessel Name: {ship_name}
                         - Our Ref No: {our_ref}
                         - Your Ref No: {your_ref}
-                        - Total Amount: {currency or 'KRW'} {total_val:,.2f}
+                        - Total Amount: {final_total_str}
                         
                         Tone: Polite, professional, customer-oriented maritime sales style.
                         Keep it concise and clear. Include greeting, document attachment summary, total amount, and professional sign-off.
