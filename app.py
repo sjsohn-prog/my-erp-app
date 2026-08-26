@@ -64,7 +64,7 @@ def safe_float(val, default=0.0):
             return default
     return default
 
-# ⭐ [EmptyDataError 방어] CSV 파일이 0바이트이거나 비어있어도 안선하게 읽어오는 헬퍼 함수
+# CSV 파일 안전 로딩 헬퍼 함수 (EmptyDataError 방어)
 def safe_read_csv(filepath, default_cols=None):
     if default_cols is None:
         default_cols = []
@@ -89,7 +89,21 @@ def get_exchange_rates():
             rates = data.get("rates", {})
             return rates
     except Exception:
-        return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23}
+        return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23, "GBP": 0.79, "HKD": 7.8, "AED": 3.67}
+
+# 통화 코드별 USD 기준 비율 추출 헬퍼 함수
+def get_rate_per_usd(code, live_rates):
+    c = clean_str(code).upper()
+    if c == "USD": return 1.0
+    if c == "KRW": return safe_float(live_rates.get("KRW", 1350.0))
+    if c == "EUR": return safe_float(live_rates.get("EUR", 0.92))
+    if c == "SGD": return safe_float(live_rates.get("SGD", 1.35))
+    if c == "JPY": return safe_float(live_rates.get("JPY", 155.0))
+    if c == "CNY": return safe_float(live_rates.get("CNY", 7.23))
+    if c == "GBP": return safe_float(live_rates.get("GBP", 0.79))
+    if c == "HKD": return safe_float(live_rates.get("HKD", 7.8))
+    if c == "AED": return safe_float(live_rates.get("AED", 3.67))
+    return 1.0
 
 # ==========================================
 # 0-1. i18n 다국어 사전 (KR / EN)
@@ -387,7 +401,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (독립된 Terms & Bank 박스 추가)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -410,7 +424,7 @@ INLINE_HTML_TEMPLATE = """
     .col-qty { width: 8%; text-align: center; }
     .col-price { width: 16%; text-align: right; }
     .col-amt { width: 16%; text-align: right; }
-    .remarks-box { border: 1.5px solid #000; padding: 8px; min-height: 60px; margin-top: 8px; font-size: 8.5pt; white-space: pre-line; }
+    .remarks-box { border: 1.5px solid #000; padding: 6px 8px; margin-top: 6px; font-size: 8.5pt; white-space: pre-line; }
 </style>
 </head>
 <body>
@@ -479,6 +493,20 @@ INLINE_HTML_TEMPLATE = """
         {{ bottom_remarks | replace('\n', '<br>') }}
     </div>
     {% endif %}
+
+    {% if terms_conditions %}
+    <div class="remarks-box">
+        <strong>[Terms & Conditions]</strong><br>
+        {{ terms_conditions | replace('\n', '<br>') }}
+    </div>
+    {% endif %}
+
+    {% if bank_info %}
+    <div class="remarks-box">
+        <strong>[Bank Account Information]</strong><br>
+        {{ bank_info | replace('\n', '<br>') }}
+    </div>
+    {% endif %}
 </body>
 </html>
 """
@@ -525,9 +553,9 @@ def prepare_items_for_pdf(items_list):
         u_p_val = safe_float(item_copy.get('UnitPrice', 0))
         amt_val = safe_float(item_copy.get('Amount', 0))
             
-        item_copy['UnitPriceFormatted'] = f"{u_p_val:,.0f}" if u_p_val > 0 else ""
+        item_copy['UnitPriceFormatted'] = f"{u_p_val:,.2f}" if u_p_val > 0 else ""
         if amt_val > 0:
-            item_copy['AmountFormatted'] = f"{amt_val:,.0f}"
+            item_copy['AmountFormatted'] = f"{amt_val:,.2f}"
         elif amt_val == 0 and u_p_val > 0:
             item_copy['AmountFormatted'] = "0"
         else:
@@ -554,7 +582,6 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# 안전한 CSV 초기화 (EmptyDataError 방지)
 db_cols = ["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]
 db_init = safe_read_csv(DB_FILE, db_cols)
 if "Category" in db_init.columns and "PartNo" not in db_init.columns: db_init = db_init.rename(columns={"Category": "PartNo"})
@@ -947,6 +974,7 @@ if menu == "서류 통합 생성":
             st.session_state['class_sel'] = ""
 
         st.session_state['currency_sel'] = currency_val
+        st.session_state['last_currency'] = currency_val
         
         parsed_items = ai_data.get("items", [])
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
@@ -1005,6 +1033,7 @@ if menu == "서류 통합 생성":
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            st.session_state['last_currency'] = "KRW"
             
             for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
                 st.session_state[f"{key_prefix}_sel"] = ""
@@ -1052,6 +1081,31 @@ if menu == "서류 통합 생성":
                 flag_class = c_str
 
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
+
+            # ⭐ [환율 자동 변환 로직] 통화(Currency) 변경 시 품목 단가 및 금액 자동 수치 환산
+            curr_currency = currency if currency else "KRW"
+            last_currency = st.session_state.get('last_currency', curr_currency)
+
+            if last_currency and curr_currency != last_currency and last_currency != "":
+                rate_prev = get_rate_per_usd(last_currency, live_rates)
+                rate_new = get_rate_per_usd(curr_currency, live_rates)
+                
+                if rate_prev > 0 and rate_new > 0:
+                    conv_factor = rate_new / rate_prev
+                    if 'doc_items' in st.session_state and not st.session_state['doc_items'].empty:
+                        df_items_conv = st.session_state['doc_items'].copy()
+                        for idx_c, row_c in df_items_conv.iterrows():
+                            u_p = safe_float(row_c.get('UnitPrice', 0))
+                            amt = safe_float(row_c.get('Amount', 0))
+                            if u_p > 0:
+                                new_up = round(u_p * conv_factor, 2 if curr_currency != "KRW" else 0)
+                                df_items_conv.at[idx_c, 'UnitPrice'] = new_up
+                            if amt > 0:
+                                new_amt = round(amt * conv_factor, 2 if curr_currency != "KRW" else 0)
+                                df_items_conv.at[idx_c, 'Amount'] = new_amt
+                        st.session_state['doc_items'] = clean_df(df_items_conv)
+                        
+            st.session_state['last_currency'] = curr_currency
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
@@ -1150,8 +1204,8 @@ if menu == "서류 통합 생성":
                 "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
                 "Description": st.column_config.TextColumn("Description", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
                 "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0),
-                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
-                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
+                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,.2f", min_value=0),
+                "Amount": st.column_config.NumberColumn("Amount", format="%,.2f", min_value=0),
                 "Remarks": st.column_config.TextColumn("Remarks", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
             }
 
@@ -1198,22 +1252,19 @@ if menu == "서류 통합 생성":
                     converted_val = total_val / usd_krw if usd_krw else 0
                     st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
                 else:
-                    if curr_symbol == "USD": src_rate = 1.0
-                    elif curr_symbol == "EUR": src_rate = live_rates.get("EUR", 0.92)
-                    elif curr_symbol == "SGD": src_rate = live_rates.get("SGD", 1.35)
-                    else: src_rate = 1.0
-                    
-                    converted_val_krw = (total_val / src_rate) * usd_krw
+                    src_rate = get_rate_per_usd(curr_symbol, live_rates)
+                    converted_val_krw = (total_val / src_rate) * usd_krw if src_rate > 0 else 0
                     st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
             else: total_val = 0.0
 
-            # ⭐ [신규] Remarks & Deviations 및 원클릭 프리셋 툴키트
+            # ⭐ [독립 네모 박스 렌더링 및 동적 입력 UI]
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
+            bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed", key="txt_bottom_remarks")
+            st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
+
+            st.markdown('<div class="section-title" style="margin-top:16px;">📋 추가 박스 항목 (Terms & Bank Info)</div>', unsafe_allow_html=True)
             
-            preset_col1, preset_col2, preset_col3 = st.columns([1, 1, 1])
-            
-            TERMS_PRESET = (
-                "[Terms & Conditions]\n"
+            TERMS_DEFAULT = (
                 "1) Payment: T/T remittance within (30) days from the date of invoice\n"
                 "2) Shipment: Hand-carry by the service engineer\n"
                 "3) Lead-time: Ready in stock\n"
@@ -1223,8 +1274,7 @@ if menu == "서류 통합 생성":
                 "7) Commissioning: N/A"
             )
             
-            BANK_PRESET = (
-                "[Bank Account Information]\n"
+            BANK_DEFAULT = (
                 "* Name of Bank: KEB HANA Bank (CHORYANG Branch)\n"
                 "* SWIFT Code: KOEXKRSE\n"
                 "* [KRW] Account No.: 322-910016-39004\n"
@@ -1233,26 +1283,26 @@ if menu == "서류 통합 생성":
                 "► All the banking fees must be paid by remitter without any deduction from the total amount on this invoice."
             )
 
-            with preset_col1:
-                if st.button("📋 [Terms & Conditions] 추가", key="btn_preset_terms"):
-                    curr_rem = st.session_state['doc_info'].get("bottom_remarks", "")
-                    st.session_state['doc_info']["bottom_remarks"] = f"{curr_rem}\n\n{TERMS_PRESET}".strip()
-                    st.rerun()
-                    
-            with preset_col2:
-                if st.button("🏦 [Bank Account] 추가", key="btn_preset_bank"):
-                    curr_rem = st.session_state['doc_info'].get("bottom_remarks", "")
-                    st.session_state['doc_info']["bottom_remarks"] = f"{curr_rem}\n\n{BANK_PRESET}".strip()
-                    st.rerun()
+            col_chk1, col_chk2 = st.columns(2)
+            with col_chk1:
+                show_terms = st.checkbox("📋 [Terms & Conditions] 네모칸 표시", value=st.session_state.get('show_terms', False), key="chk_show_terms")
+            with col_chk2:
+                show_bank = st.checkbox("🏦 [Bank Account Info] 네모칸 표시", value=st.session_state.get('show_bank', False), key="chk_show_bank")
 
-            with preset_col3:
-                if st.button("🧹 Remarks 내용 비우기", key="btn_preset_clear"):
-                    st.session_state['doc_info']["bottom_remarks"] = ""
-                    st.rerun()
+            terms_conditions = ""
+            if show_terms:
+                if 'terms_text' not in st.session_state or not st.session_state['terms_text']:
+                    st.session_state['terms_text'] = TERMS_DEFAULT
+                terms_conditions = st.text_area("Terms & Conditions 내용 (수정 가능)", value=st.session_state['terms_text'], height=120, key="txt_terms_text")
+                st.session_state['terms_text'] = terms_conditions
 
-            bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=120, label_visibility="collapsed", key="txt_bottom_remarks")
-            st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
-            
+            bank_info = ""
+            if show_bank:
+                if 'bank_text' not in st.session_state or not st.session_state['bank_text']:
+                    st.session_state['bank_text'] = BANK_DEFAULT
+                bank_info = st.text_area("Bank Account Information 내용 (수정 가능)", value=st.session_state['bank_text'], height=120, key="txt_bank_text")
+                st.session_state['bank_text'] = bank_info
+
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1281,7 +1331,9 @@ if menu == "서류 통합 생성":
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
-                "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
+                "items": pdf_formatted_items, "bottom_remarks": bottom_remarks,
+                "terms_conditions": terms_conditions if show_terms else "",
+                "bank_info": bank_info if show_bank else ""
             }
             
             realtime_pdf_bytes = generate_pdf(preview_ctx)
