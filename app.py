@@ -324,6 +324,23 @@ if 'lang' not in st.session_state:
 
 custom_css = """
 <style>
+    /* 상단 블록 메인 여백 최소화하여 우상단 메뉴 밑에 밀착 */
+    .main .block-container {
+        padding-top: 1.8rem !important;
+        padding-bottom: 1rem !important;
+    }
+    
+    /* 언어 스위치 오른쪽 정렬 및 여백 조정 */
+    div[data-testid="stColumn"]:nth-child(2) div[data-testid="stRadio"] {
+        display: flex !important;
+        justify-content: flex-end !important;
+    }
+    div[data-testid="stColumn"]:nth-child(2) div[data-testid="stRadio"] > div {
+        flex-direction: row !important;
+        justify-content: flex-end !important;
+        gap: 10px !important;
+    }
+
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
     .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
@@ -394,7 +411,8 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-top_l_col, top_r_col = st.columns([8.5, 1.5])
+# 상단 우측 위치 KR / EN 스위치
+top_l_col, top_r_col = st.columns([8.2, 1.8])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
     if selected_lang != st.session_state['lang']:
@@ -453,7 +471,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (테이블 행 분할 방지 tr { page-break-inside: avoid } 적용)
+# (요구사항: 상단 구분선 2.5px 제외, 본문/헤더표/비고 박스 등 모든 표 테두리 0.9px 통일)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -509,7 +527,7 @@ INLINE_HTML_TEMPLATE = """
         text-decoration: underline;
     }
 
-    /* 헤더 정보 표: 상단 구분선에 바짝 밀착되며 1.2px 테두리 */
+    /* 헤더 정보 표: 0.9px 테두리 */
     table.hdr-table { 
         width: 100%; 
         border-collapse: collapse; 
@@ -517,12 +535,12 @@ INLINE_HTML_TEMPLATE = """
         margin-bottom: 3px; 
     }
     table.hdr-table th, table.hdr-table td { 
-        border: 1.2px solid #000 !important; 
+        border: 0.9px solid #000 !important; 
         padding: 3px 5px; 
         vertical-align: middle; 
     }
 
-    /* 품목 및 내역 표: 0.6px 테두리 & 페이지 구분 시 행 잘림 방지 */
+    /* 품목 및 내역 표: 0.9px 테두리 & 페이지 구분 시 행 잘림 방지 */
     table.data-table { 
         width: 100%; 
         border-collapse: collapse; 
@@ -535,14 +553,13 @@ INLINE_HTML_TEMPLATE = """
     table.data-table tbody {
         display: table-row-group;
     }
-    /* 핵심: 행 단위 잘림을 차단하여 아래 테두리 미닫힘 및 No. 번호 누락 방지 */
     table.data-table tr { 
-        border: 0.6px solid #000; 
+        border: 0.9px solid #000; 
         page-break-inside: avoid !important;
         break-inside: avoid !important;
     }
     table.data-table th, table.data-table td { 
-        border: 0.6px solid #000; 
+        border: 0.9px solid #000; 
         padding: 3px 5px; 
         vertical-align: middle; 
     }
@@ -558,8 +575,9 @@ INLINE_HTML_TEMPLATE = """
     .col-price { width: 16%; text-align: right !important; }
     .col-amt { width: 16%; text-align: right !important; }
     
-    .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
-    .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
+    /* 하단 비고 박스: 0.9px 테두리 */
+    .remarks-box { border: 0.9px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
+    .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
@@ -581,7 +599,7 @@ INLINE_HTML_TEMPLATE = """
         </table>
     </div>
 
-    <!-- 헤더 정보 표 (테두리 1.2px) -->
+    <!-- 헤더 정보 표 (0.9px 테두리) -->
     <table class="hdr-table">
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
@@ -632,7 +650,7 @@ INLINE_HTML_TEMPLATE = """
             {% endfor %}
             {% if bottom_remarks %}
             <tr>
-                <td colspan="5" style="border: 0.6px solid #000; padding: 4px 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
+                <td colspan="5" style="border: 0.9px solid #000; padding: 4px 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
                     <strong><em>[Remarks & Deviations]</em></strong><br>
                     {{ bottom_remarks | replace('\n', '<br>') }}
                 </td>
@@ -641,7 +659,7 @@ INLINE_HTML_TEMPLATE = """
             {% if total_amount_str %}
             <tr>
                 <td colspan="3" class="total-row-td" style="border-right: none;"></td>
-                <td class="total-row-td" style="text-align: center; background-color: #f4f4f4; border-left: 0.6px solid #000;">Total Amount</td>
+                <td class="total-row-td" style="text-align: center; background-color: #f4f4f4; border-left: 0.9px solid #000;">Total Amount</td>
                 <td class="total-row-td" style="text-align: right; font-size: 11pt; font-weight: bold;">{{ total_amount_str }}</td>
             </tr>
             {% endif %}
@@ -1060,7 +1078,6 @@ if menu == "서류 통합 생성":
         recipient_check = (recip_comp + " " + recip_attn).lower()
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
         
-        # 역할 자동 반전 로직
         if is_incoming_to_us:
             to_field_val = issuer_comp or recip_comp
             attn_field_val = issuer_pic
@@ -1161,7 +1178,6 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
-        # 헤더 2컬럼 레이아웃
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
