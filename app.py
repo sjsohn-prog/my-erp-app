@@ -51,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
+# 서류 관리대장 및 마스터 DB 열 레이아웃
 ledger_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
@@ -324,13 +324,11 @@ if 'lang' not in st.session_state:
 
 custom_css = """
 <style>
-    /* 상단 블록 메인 여백 최소화하여 우상단 메뉴 밑에 밀착 */
     .main .block-container {
         padding-top: 1.8rem !important;
         padding-bottom: 1rem !important;
     }
     
-    /* 언어 스위치 오른쪽 정렬 및 여백 조정 */
     div[data-testid="stColumn"]:nth-child(2) div[data-testid="stRadio"] {
         display: flex !important;
         justify-content: flex-end !important;
@@ -471,7 +469,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (요구사항: 상단 구분선 2.5px 제외, 본문/헤더표/비고 박스 등 모든 표 테두리 0.9px 통일)
+# (원솔루션 로고 크기 58px 상향 & 표 테두리 0.9px 통일)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -483,7 +481,7 @@ INLINE_HTML_TEMPLATE = """
     
     @page { 
         size: A4; 
-        margin-top: 22mm; 
+        margin-top: 25mm; 
         margin-bottom: 12mm;
         margin-left: 8mm;
         margin-right: 8mm;
@@ -498,7 +496,7 @@ INLINE_HTML_TEMPLATE = """
     /* 매 페이지 최상단 고정 헤더 */
     div.header-repeat {
         position: fixed;
-        top: -16mm;
+        top: -18mm;
         left: 0;
         right: 0;
         width: 100%;
@@ -518,7 +516,7 @@ INLINE_HTML_TEMPLATE = """
         vertical-align: bottom;
     }
     .doc-title-text {
-        font-size: 20pt;
+        font-size: 22pt;
         font-weight: 800;
         text-align: right;
         letter-spacing: 1.5px;
@@ -587,9 +585,9 @@ INLINE_HTML_TEMPLATE = """
             <tr>
                 <td style="text-align: left; width: 50%;">
                     {% if logo_base64 %}
-                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 40px;" />
+                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 58px;" />
                     {% else %}
-                    <span style="font-size: 16pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
+                    <span style="font-size: 18pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
                     {% endif %}
                 </td>
                 <td style="text-align: right; width: 50%;">
@@ -893,10 +891,10 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         
         CRITICAL RULES FOR EXTRACTION:
         1. ISSUER & RECIPIENT DETAILS:
-           - "issuer_company": Name of the company issuing/sending this document.
-           - "issuer_pic": Person Name / Contact PIC of the issuing company.
-           - "recipient_company": Name of the company to whom this doc is addressed (To).
-           - "recipient_attn": Person Name specified in "Attention" / "Attn" of this document.
+           - "issuer_company": Name of the company issuing/sending this document (e.g., "STX Offshore & Shipbuilding Co., Ltd.").
+           - "issuer_pic": Person Name / Contact PIC of the issuing company (e.g., "Y.S KIM", "PREPARED BY").
+           - "recipient_company": Name of the recipient company if explicitly specified.
+           - "recipient_attn": Person Name specified in "Attention" / "Attn" of the recipient.
 
         2. HEADER FIELDS ACCURACY EXTRACTION:
            - "date_str": Document Issue Date (e.g. "2015.06.24").
@@ -1055,7 +1053,7 @@ elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성
+# 6. 서류 통합 생성 (외부 발신 서류의 수신/발신 자동 반전 판정)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -1070,29 +1068,30 @@ if menu == "서류 통합 생성":
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         
-        recip_comp = clean_str(ai_data.get("recipient_company", "")) or clean_str(ai_data.get("to_name", ""))
-        recip_attn = clean_str(ai_data.get("recipient_attn", "")) or clean_str(ai_data.get("attn_name", ""))
         issuer_comp = clean_str(ai_data.get("issuer_company", ""))
         issuer_pic = clean_str(ai_data.get("issuer_pic", "")) or clean_str(ai_data.get("pic", ""))
+        recip_comp = clean_str(ai_data.get("recipient_company", "")) or clean_str(ai_data.get("to_name", ""))
+        recip_attn = clean_str(ai_data.get("recipient_attn", "")) or clean_str(ai_data.get("attn_name", ""))
 
-        recipient_check = (recip_comp + " " + recip_attn).lower()
-        is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
+        issuer_check = (issuer_comp + " " + issuer_pic).lower()
+        is_our_company_issuer = any(kw in issuer_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in issuer_check)
         
-        if is_incoming_to_us:
-            to_field_val = issuer_comp or recip_comp
+        # 원솔루션이 발행 주체가 아닌 경우 (STX 등 외부업체가 발신한 문서) -> 수신자(To/Attn)에 상대방 정보 배치 & PIC에 우리 담당자 배치
+        if not is_our_company_issuer and issuer_comp:
+            to_field_val = issuer_comp
             attn_field_val = issuer_pic
-            pic_field_val = recip_attn if recip_attn else st.session_state.get('user_email', '')
+            pic_field_val = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
             your_ref_val = clean_str(ai_data.get("our_ref", "")) or clean_str(ai_data.get("your_ref", ""))
             our_ref_val = ""
         else:
             to_field_val = recip_comp
             attn_field_val = recip_attn
-            pic_field_val = issuer_pic if issuer_pic else st.session_state.get('user_email', '')
+            pic_field_val = issuer_pic if issuer_pic else (st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "")
             your_ref_val = clean_str(ai_data.get("your_ref", ""))
             our_ref_val = clean_str(ai_data.get("our_ref", ""))
 
         project_val = clean_str(ai_data.get("project_title", ""))
-        validity_val = clean_str(ai_data.get("validity", ""))
+        validity_val = clean_str(ai_data.get("validity", "30 Days"))
         flag_class_val = clean_str(ai_data.get("flag_class", ""))
         date_val = clean_str(ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")))
         ship_val = clean_str(ai_data.get("ship_name", ""))
