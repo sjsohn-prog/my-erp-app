@@ -52,7 +52,7 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. 최상단 공통 헬퍼 함수 정의 (NameError 방지)
+# 0-1. 최상단 공통 헬퍼 함수 정의
 # ==========================================
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
@@ -609,7 +609,7 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 필수 도구 (상단 안전 배치)
+# 3. 환경 및 데이터 정제 필수 도구
 # ==========================================
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
@@ -762,33 +762,56 @@ if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 # ==========================================
-# 4. AI 파싱 엔진 (Gemini 최신 표준 모델 적용)
+# 4. AI 파싱 엔진 (Gemini 3.6 모델 직접 호출 및 안전 검증)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    if mode == "thinking":
-        candidate_models = ['gemini-3.6-flash-thinking', 'gemini-3.6-flash', 'gemini-1.5-flash']
-    else:
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-1.5-flash']
-
-    last_err = None
-    for model_name in candidate_models:
+    # 모드에 따른 3.6 직접 타겟팅 모델 지정
+    primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
+    
+    # 1차 시도: 타겟 3.6 모델 직접 호출
+    try:
+        model = genai.GenerativeModel(primary_model)
+        response = model.generate_content(content_list)
+        if response and response.text:
+            res_text = response.text.strip()
+            s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
+            e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
+            if s_idx != -1 and e_idx != -1: res_text = res_text[s_idx:e_idx + 1]
+            return json.loads(res_text)
+    except Exception as primary_err:
+        # 2차 시도: API Key에 사용 가능한 모델 목록 실시간 수집 후 사용
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(content_list)
-            if response and response.text:
-                res_text = response.text.strip()
-                s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
-                e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
-                if s_idx != -1 and e_idx != -1: res_text = res_text[s_idx:e_idx + 1]
-                return json.loads(res_text)
-        except Exception as e:
-            last_err = e
-            continue
-    raise Exception(f"Gemini 모델 호출에 실패했습니다: {last_err}")
+            valid_models = [
+                m.name.replace('models/', '') 
+                for m in genai.list_models() 
+                if 'generateContent' in getattr(m, 'supported_generation_methods', [])
+            ]
+            
+            fallback_target = None
+            for m in valid_models:
+                if 'flash' in m or 'gemini' in m:
+                    fallback_target = m
+                    break
+            if not fallback_target and valid_models:
+                fallback_target = valid_models[0]
+                
+            if fallback_target and fallback_target != primary_model:
+                model = genai.GenerativeModel(fallback_target)
+                response = model.generate_content(content_list)
+                if response and response.text:
+                    res_text = response.text.strip()
+                    s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
+                    e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
+                    if s_idx != -1 and e_idx != -1: res_text = res_text[s_idx:e_idx + 1]
+                    return json.loads(res_text)
+        except Exception:
+            pass
+            
+        raise Exception(f"Gemini 모델({primary_model}) 호출 실패: {primary_err}")
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
