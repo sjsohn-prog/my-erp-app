@@ -22,7 +22,6 @@ ADMIN_PASSWORD = "admin0915"
 SAVE_PASSWORD = "0915"
 DEFAULT_GEMINI_KEY = ""
 
-# ⭐ "Choose an option" 제거 및 표준 옵션 구성
 FLAG_OPTIONS = [
     "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", 
     "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
@@ -218,9 +217,17 @@ custom_css = """
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
     .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
-    .erp-card { background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
     
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--secondary-background-color) !important;
+        border: 2px solid #0284C7 !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        margin-bottom: 16px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+    }
+
     div[data-testid="stExpander"] {
         border: 2px solid #00F0FF !important;
         border-radius: 12px !important;
@@ -240,7 +247,6 @@ custom_css = """
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
     }
 
-    /* ⭐ 드롭다운 및 입력창 글자 색상 톤다운 커스텀 */
     div[data-baseweb="select"] div, div[data-baseweb="input"] input {
         color: #CBD5E1 !important;
         font-weight: 500 !important;
@@ -448,7 +454,7 @@ def clean_df(df):
     if df is None or df.empty: return df
     df = df.copy().fillna("")
     for col in df.columns:
-        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none"], "")
+        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0"], "")
     return df
 
 def prepare_items_for_pdf(items_list):
@@ -554,11 +560,13 @@ def safe_merge_db(existing_db, new_data_df):
     res = combined[has_pno | has_item | has_desc].drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
     return clean_df(res)
 
+# ⭐ 초기값은 전면 빈칸("")으로 세팅
 if 'doc_info' not in st.session_state:
-    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
+    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
+# ⭐ Qty 기본값 0 세팅
 if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
 def generate_pdf(context):
     from weasyprint import HTML
@@ -590,15 +598,17 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
-# ⭐ 단일 통합 드롭다운 헬퍼 함수 (중복 필드 제거 & 직접 입력 지원)
-def render_unified_input(label, current_val, history_options, key_prefix):
+# ⭐ 기본 0번째 옵션은 항상 빈칸("")으로 노출되는 단일 통합 드롭다운 헬퍼 함수
+def render_unified_input(label, current_val, base_options, key_prefix):
     curr = clean_str(current_val)
-    options = []
-    if curr:
+    options = [""]  # 항상 Index 0은 빈칸("")으로 노출
+    
+    if curr and curr not in options and "Direct Input" not in curr and "직접 입력" not in curr:
         options.append(curr)
-    for item in history_options:
+        
+    for item in base_options:
         s_item = clean_str(item)
-        if s_item and s_item not in options:
+        if s_item and s_item not in options and "Direct Input" not in s_item and "직접 입력" not in s_item:
             options.append(s_item)
             
     direct_label = "✏️ 직접 입력 / Direct Input"
@@ -607,7 +617,8 @@ def render_unified_input(label, current_val, history_options, key_prefix):
     sel_key = f"{key_prefix}_sel"
     txt_key = f"{key_prefix}_txt"
     
-    selected = st.selectbox(label, options=options, index=0, key=sel_key)
+    idx = options.index(curr) if curr in options else 0
+    selected = st.selectbox(label, options=options, index=idx, key=sel_key)
     
     if selected == direct_label:
         val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", value="", key=txt_key)
@@ -683,13 +694,13 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
             "your_ref": "",
             "ship_name": "",
             "payment_due": "",
-            "currency": "KRW",
+            "currency": "",
             "items": [
                 {{
                     "PartNo": "", 
                     "ItemName": "", 
                     "Description": "", 
-                    "Qty": 1, 
+                    "Qty": 0, 
                     "UnitPrice": 0.0, 
                     "Amount": 0.0, 
                     "Remarks": ""
@@ -820,7 +831,7 @@ if menu == "서류 통합 생성":
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
         if not items_df.empty:
             for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
-                if req_col not in items_df.columns: items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else (1 if req_col == "Qty" else 0.0)
+                if req_col not in items_df.columns: items_df[req_col] = "" if req_col not in ["Qty", "UnitPrice", "Amount"] else 0
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
@@ -856,213 +867,209 @@ if menu == "서류 통합 생성":
                 st.rerun()
 
         if st.button(t("btn_reset"), disabled=is_running):
-            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "KRW", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 1, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
             st.rerun()
 
         history = load_history()
-        st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
         
-        # ⭐ To, Attention: 중복 없는 단일 통합 위젯 적용
-        to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
-        attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
-        
-        project_title = st.text_input("Project Title", value=st.session_state['doc_info'].get("project_title", ""))
-        our_ref = st.text_input("Our Ref. No.", value=st.session_state['doc_info'].get("our_ref", ""))
-        your_ref = st.text_input("Your Ref. No.", value=st.session_state['doc_info'].get("your_ref", ""))
-        date_str = st.text_input("Date", value=st.session_state['doc_info'].get("date", datetime.now().strftime("%Y-%m-%d")))
-        validity = st.text_input("Validity", value=st.session_state['doc_info'].get("validity", ""))
-        payment_due = st.text_input("Payment Due", value=st.session_state['doc_info'].get("payment_due", ""))
-        pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", st.session_state.get('user_email', '')))
-        
-        # ⭐ Ship's Name: 히스토리 연동 단일 통합 위젯 적용
-        ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
-
-        # ⭐ Flag & Class: 파싱된 값 기본 노출 + 드롭다운 + 직접 입력 지원 단일 위젯
-        curr_fc = st.session_state['doc_info'].get("flag_class", "")
-        if "/" in curr_fc:
-            fc_parts = curr_fc.split("/", 1)
-            curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
-        else:
-            curr_flag, curr_class = curr_fc.strip(), ""
-
-        col_fc1, col_fc2 = st.columns(2)
-        with col_fc1:
-            sel_flag = render_unified_input("Flag", curr_flag, FLAG_OPTIONS, "flag")
-        with col_fc2:
-            sel_class = render_unified_input("Class", curr_class, CLASS_OPTIONS, "class")
+        # ⭐ 모든 헤더 필드를 단일 파란색 카드 컨테이너 내부로 영구 고정
+        with st.container(border=True):
+            st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
-        f_str = sel_flag if sel_flag and "Direct Input" not in sel_flag and "직접 입력" not in sel_flag else ""
-        c_str = sel_class if sel_class and "Direct Input" not in sel_class and "직접 입력" not in sel_class else ""
-        
-        if f_str and c_str:
-            flag_class = f"{f_str} / {c_str}"
-        elif f_str:
-            flag_class = f_str
-        else:
-            flag_class = c_str
+            # ⭐ 모든 헤더 입력 항목: 기본값 빈칸("") + 옆 화살표 드롭다운 통합 위젯
+            to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
+            attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
+            project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
+            our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), [], "our_ref")
+            your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), [], "your_ref")
+            date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [datetime.now().strftime("%Y-%m-%d")], "date")
+            validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days", "90 Days"], "validity")
+            payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance", "60 Days Net"], "payment_due")
+            pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')] if st.session_state.get('user_email') else [], "pic")
+            ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
 
-        # Currency 선택
-        curr_val = st.session_state['doc_info'].get("currency", "KRW")
-        curr_index = CURRENCY_OPTIONS.index(curr_val) if curr_val in CURRENCY_OPTIONS else 0
-        currency = st.selectbox("Currency", CURRENCY_OPTIONS, index=curr_index)
-
-        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("items_title")}</div>', unsafe_allow_html=True)
-        
-        part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
-        item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
-
-        column_config = {
-            "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
-            "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
-            "Description": st.column_config.TextColumn("Description", width=105),
-            "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=1, width=45),
-            "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=70),
-            "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=75),
-            "Remarks": st.column_config.TextColumn("Remarks", width=70),
-        }
-
-        df_current = clean_df(st.session_state['doc_items'].copy())
-        
-        cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
-        for c in cols_order:
-            if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else (1 if c == "Qty" else 0.0)
-        df_current = clean_df(df_current[cols_order])
-
-        for i, row in df_current.iterrows():
-            if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
-                df_current.at[i, 'Amount'] = float(row.get('Qty', 1)) * float(row.get('UnitPrice', 0.0))
-
-        edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
-
-        for i, row in edited_df.iterrows():
-            pno = clean_str(row.get('PartNo'))
-            iname = clean_str(row.get('ItemName'))
-            
-            match_row = None
-            if pno and not db.empty and 'PartNo' in db.columns and pno in db['PartNo'].values:
-                match_row = db[db['PartNo'] == pno].iloc[0]
-            elif iname and not db.empty and 'ItemName' in db.columns and iname in db['ItemName'].values:
-                match_row = db[db['ItemName'] == iname].iloc[0]
-                
-            if match_row is not None:
-                if not pno: edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
-                if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
-                if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
-                
-                u_p_curr = float(row.get('UnitPrice', 0.0))
-                if u_p_curr == 0.0:
-                    u_p = float(match_row.get('UnitPrice', 0.0))
-                    edited_df.at[i, 'UnitPrice'] = u_p
-                    if float(edited_df.at[i, 'Amount']) == 0.0:
-                        edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 1))
-
-        if "Amount" in edited_df.columns:
-            total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
-            st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
-        else: total_val = 0.0
-
-        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
-        bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
-        
-        # 저장 비밀번호 (0915 검증)
-        st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("reg_title")}</div>', unsafe_allow_html=True)
-        reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
-        
-        if st.button(t("btn_register"), type="secondary", disabled=is_running):
-            if reg_pwd != SAVE_PASSWORD:
-                st.error(t("pwd_err"))
+            # Flag & Class: 파싱/입력값 통합 드롭다운
+            curr_fc = st.session_state['doc_info'].get("flag_class", "")
+            if "/" in curr_fc:
+                fc_parts = curr_fc.split("/", 1)
+                curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
             else:
-                current_user = st.session_state.get('user_email', 'Unknown')
-                st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
-                st.session_state['doc_items'] = clean_df(edited_df)
-                db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
-                db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
-                safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
-                
-                save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
-                save_history(ship_name, to_name, attn_name)
-                st.success(t("reg_success", user=current_user))
-        st.markdown('</div>', unsafe_allow_html=True)
+                curr_flag, curr_class = curr_fc.strip(), ""
 
+            col_fc1, col_fc2 = st.columns(2)
+            with col_fc1:
+                sel_flag = render_unified_input("Flag", curr_flag, FLAG_OPTIONS, "flag")
+            with col_fc2:
+                sel_class = render_unified_input("Class", curr_class, CLASS_OPTIONS, "class")
+                
+            f_str = sel_flag if sel_flag and "Direct Input" not in sel_flag and "직접 입력" not in sel_flag else ""
+            c_str = sel_class if sel_class and "Direct Input" not in sel_class and "직접 입력" not in sel_class else ""
+            
+            if f_str and c_str:
+                flag_class = f"{f_str} / {c_str}"
+            elif f_str:
+                flag_class = f_str
+            else:
+                flag_class = c_str
+
+            # Currency 드롭다운
+            currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
+
+            st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
+            
+            part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
+            item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
+
+            # ⭐ Q'ty 항목 min_value=0 세팅
+            column_config = {
+                "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
+                "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
+                "Description": st.column_config.TextColumn("Description", width=105),
+                "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=0, width=45),
+                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=70),
+                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=75),
+                "Remarks": st.column_config.TextColumn("Remarks", width=70),
+            }
+
+            df_current = clean_df(st.session_state['doc_items'].copy())
+            
+            cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+            for c in cols_order:
+                if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else 0
+            df_current = clean_df(df_current[cols_order])
+
+            for i, row in df_current.iterrows():
+                if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
+                    df_current.at[i, 'Amount'] = float(row.get('Qty', 0)) * float(row.get('UnitPrice', 0.0))
+
+            edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
+
+            for i, row in edited_df.iterrows():
+                pno = clean_str(row.get('PartNo'))
+                iname = clean_str(row.get('ItemName'))
+                
+                match_row = None
+                if pno and not db.empty and 'PartNo' in db.columns and pno in db['PartNo'].values:
+                    match_row = db[db['PartNo'] == pno].iloc[0]
+                elif iname and not db.empty and 'ItemName' in db.columns and iname in db['ItemName'].values:
+                    match_row = db[db['ItemName'] == iname].iloc[0]
+                    
+                if match_row is not None:
+                    if not pno: edited_df.at[i, 'PartNo'] = clean_str(match_row.get('PartNo', ''))
+                    if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
+                    if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
+                    
+                    u_p_curr = float(row.get('UnitPrice', 0.0))
+                    if u_p_curr == 0.0:
+                        u_p = float(match_row.get('UnitPrice', 0.0))
+                        edited_df.at[i, 'UnitPrice'] = u_p
+                        if float(edited_df.at[i, 'Amount']) == 0.0:
+                            edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 0))
+
+            if "Amount" in edited_df.columns:
+                total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
+                st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
+            else: total_val = 0.0
+
+            st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
+            bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
+            
+            # 저장 비밀번호 (0915 검증)
+            st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
+            reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
+            
+            if st.button(t("btn_register"), type="secondary", disabled=is_running):
+                if reg_pwd != SAVE_PASSWORD:
+                    st.error(t("pwd_err"))
+                else:
+                    current_user = st.session_state.get('user_email', 'Unknown')
+                    st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
+                    st.session_state['doc_items'] = clean_df(edited_df)
+                    db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
+                    db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
+                    safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
+                    
+                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
+                    save_history(ship_name, to_name, attn_name)
+                    st.success(t("reg_success", user=current_user))
+
+    # ⭐ 우측 PDF 미리보기 파란색 카드 내 고정
     with right_col:
-        st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
-        
-        pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
-        preview_ctx = {
-            "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
-            "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
-            "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
-            "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
-        }
-        
-        realtime_pdf_bytes = generate_pdf(preview_ctx)
-        file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
-        st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
-        
-        pdf_imgs = render_pdf_images(realtime_pdf_bytes)
-        if pdf_imgs:
-            for i, img_b in enumerate(pdf_imgs):
-                st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
-        else:
-            st.info("Generating PDF preview...")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
+            
+            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"))
+            preview_ctx = {
+                "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
+                "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
+                "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
+                "items": pdf_formatted_items, "bottom_remarks": bottom_remarks
+            }
+            
+            realtime_pdf_bytes = generate_pdf(preview_ctx)
+            file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
+            st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
+            
+            pdf_imgs = render_pdf_images(realtime_pdf_bytes)
+            if pdf_imgs:
+                for i, img_b in enumerate(pdf_imgs):
+                    st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
+            else:
+                st.info("Generating PDF preview...")
 
 # ==========================================
-# 7. 서류 관리대장 (2단계 동적 연동 필터)
+# 7. 서류 관리대장
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
-    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
 
-    if not ledger_df.empty:
-        ledger_df = clean_df(ledger_df)
-        if "CreatedBy" not in ledger_df.columns:
-            ledger_df["CreatedBy"] = "-"
+        if not ledger_df.empty:
+            ledger_df = clean_df(ledger_df)
+            if "CreatedBy" not in ledger_df.columns:
+                ledger_df["CreatedBy"] = "-"
 
-        f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
-        
-        valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "Date", "YourRef", "OurRef"]
-        col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
-        
-        with f_col1:
-            selected_col = st.selectbox(t("filter_category"), col_options)
+            f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
+            
+            valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "Date", "YourRef", "OurRef"]
+            col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
+            
+            with f_col1:
+                selected_col = st.selectbox(t("filter_category"), col_options)
 
-        with f_col2:
-            if selected_col == t("all"):
-                sub_options = [t("all")]
-                selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True)
-            else:
-                unique_vals = sorted([str(x) for x in ledger_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
-                sub_options = [t("all")] + unique_vals
-                selected_val = st.selectbox(t("filter_value"), sub_options)
+            with f_col2:
+                if selected_col == t("all"):
+                    sub_options = [t("all")]
+                    selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True)
+                else:
+                    unique_vals = sorted([str(x) for x in ledger_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
+                    sub_options = [t("all")] + unique_vals
+                    selected_val = st.selectbox(t("filter_value"), sub_options)
 
-        with f_col3:
-            keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"))
+            with f_col3:
+                keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"))
 
-        filtered_df = ledger_df.copy()
+            filtered_df = ledger_df.copy()
 
-        if selected_col != t("all") and selected_val != t("all"):
-            filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
+            if selected_col != t("all") and selected_val != t("all"):
+                filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
 
-        if keyword.strip():
-            kw = keyword.strip().lower()
-            match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
-            filtered_df = filtered_df[match_mask]
+            if keyword.strip():
+                kw = keyword.strip().lower()
+                match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
+                filtered_df = filtered_df[match_mask]
 
-        st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
-        st.dataframe(filtered_df, use_container_width=True)
+            st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
+            st.dataframe(filtered_df, use_container_width=True)
 
-        st.download_button(t("btn_download_csv"), filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
-    else:
-        st.info(t("no_ledger"))
-    st.markdown('</div>', unsafe_allow_html=True)
+            st.download_button(t("btn_download_csv"), filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
+        else:
+            st.info(t("no_ledger"))
 
 # ==========================================
-# 8. 마스터 DB 관리 (저장: 0915 / 초기화: admin0915)
+# 8. 마스터 DB 관리
 # ==========================================
 elif menu == "마스터 DB 관리":
     db = clean_df(pd.read_csv(DB_FILE))
@@ -1072,63 +1079,60 @@ elif menu == "마스터 DB 관리":
         st.session_state['bg_task']['status'] = 'idle'
         st.success("🎉 AI Parsing Complete")
 
-    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-title">{t("ai_db_title")}</div>', unsafe_allow_html=True)
-    
-    ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="db_ai_mode")
-    selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-    uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running)
-    
-    if uploaded_db_file:
-        sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-        parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running)
-        if parse_mode == t("parse_mode_sheet"):
-            selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running)
-            if st.button(t("btn_analyze"), disabled=is_running):
-                st.session_state['bg_task']['type'] = 'db_parse'
-                start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
-                st.rerun()
-        else:
-            if st.button(t("btn_parse_all"), disabled=is_running):
-                st.session_state['bg_task']['type'] = 'db_parse'
-                start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
-                st.rerun()
+    with st.container(border=True):
+        st.markdown(f'<div class="section-title">{t("ai_db_title")}</div>', unsafe_allow_html=True)
+        
+        ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="db_ai_mode")
+        selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running)
+        
+        if uploaded_db_file:
+            sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
+            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running)
+            if parse_mode == t("parse_mode_sheet"):
+                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running)
+                if st.button(t("btn_analyze"), disabled=is_running):
+                    st.session_state['bg_task']['type'] = 'db_parse'
+                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
+                    st.rerun()
+            else:
+                if st.button(t("btn_parse_all"), disabled=is_running):
+                    st.session_state['bg_task']['type'] = 'db_parse'
+                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
+                    st.rerun()
 
-    if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
-        st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
-        db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_parse_pwd")
-        if st.button(t("btn_final_db_save"), disabled=is_running):
-            if db_parse_pwd != SAVE_PASSWORD:
+        if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
+            st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
+            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_parse_pwd")
+            if st.button(t("btn_final_db_save"), disabled=is_running):
+                if db_parse_pwd != SAVE_PASSWORD:
+                    st.error(t("pwd_err"))
+                else:
+                    updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
+                    updated_db.to_csv(DB_FILE, index=False)
+                    del st.session_state['temp_db_upload']
+                    st.success("Successfully saved to DB.")
+                    st.rerun()
+    
+    with st.container(border=True):
+        st.markdown(f'<div class="section-title">{t("db_mgmt_title")}</div>', unsafe_allow_html=True)
+        edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
+        
+        db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_edit_pwd")
+        if st.button(t("btn_save_db")):
+            if db_edit_pwd != SAVE_PASSWORD:
                 st.error(t("pwd_err"))
             else:
-                updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
-                updated_db.to_csv(DB_FILE, index=False)
-                del st.session_state['temp_db_upload']
-                st.success("Successfully saved to DB.")
+                edited_db.to_csv(DB_FILE, index=False)
+                st.success("Master DB changes saved successfully.")
+    
+    with st.container(border=True):
+        with st.expander(t("db_reset_title")):
+            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_pwd")
+            if st.button(t("btn_reset")) and pwd_input == ADMIN_PASSWORD:
+                pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
+                st.success("Master DB initialized.")
                 st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-title">{t("db_mgmt_title")}</div>', unsafe_allow_html=True)
-    edited_db = clean_df(st.data_editor(db, num_rows="dynamic", use_container_width=True))
-    
-    db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_edit_pwd")
-    if st.button(t("btn_save_db")):
-        if db_edit_pwd != SAVE_PASSWORD:
-            st.error(t("pwd_err"))
-        else:
-            edited_db.to_csv(DB_FILE, index=False)
-            st.success("Master DB changes saved successfully.")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="erp-card">', unsafe_allow_html=True)
-    with st.expander(t("db_reset_title")):
-        pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_pwd")
-        if st.button(t("btn_reset")) and pwd_input == ADMIN_PASSWORD:
-            pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
-            st.success("Master DB initialized.")
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     files = [f for f in os.listdir("output") if f.endswith('.pdf')]
