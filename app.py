@@ -85,7 +85,7 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
-        "items_title": "📦 품목 상세 내역 (열 너비 자동 맞춤 / 직접 입력 지원)",
+        "items_title": "📦 품목 상세 내역 (행 합치기/나누기 지원)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 관리대장 및 DB 등록",
         "pwd_save_label": "🔒 비밀번호",
@@ -140,7 +140,7 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
-        "items_title": "📦 Line Item Details (Auto-fit columns / Direct edit)",
+        "items_title": "📦 Line Item Details (Merge/Split supported)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 Save to Ledger & Master DB",
         "pwd_save_label": "🔒 Password",
@@ -373,11 +373,11 @@ INLINE_HTML_TEMPLATE = """
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 4px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     .col-no { width: 5%; text-align: center; }
-    .col-desc { width: 55%; }
+    .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
     .col-qty { width: 8%; text-align: center; }
     .col-price { width: 16%; text-align: right; }
     .col-amt { width: 16%; text-align: right; }
-    .remarks-box { border: 1.5px solid #000; padding: 8px; min-height: 60px; margin-top: 8px; font-size: 8.5pt; }
+    .remarks-box { border: 1.5px solid #000; padding: 8px; min-height: 60px; margin-top: 8px; font-size: 8.5pt; white-space: pre-line; }
 </style>
 </head>
 <body>
@@ -431,11 +431,7 @@ INLINE_HTML_TEMPLATE = """
             {% for item in items %}
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc">
-                    {% if item.ItemName %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
-                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
-                    {% if item.Remarks %}<br><span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks }}</em></span>{% endif %}
-                </td>
+                <td class="col-desc">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
                 <td class="col-qty">{{ item.Qty }}</td>
                 <td class="col-price">{{ item.UnitPriceFormatted }}</td>
                 <td class="col-amt">{{ item.AmountFormatted }}</td>
@@ -714,9 +710,9 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
         2. HEADER FIELDS EXTRACTION:
            - "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
 
-        3. ITEM TABLE EXTRACTION:
-           - Parse ALL rows inside line items table: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
-           - Extract exact Model / Item Name into "ItemName" or "Description". Do not leave both empty if item exists.
+        3. ITEM TABLE EXTRACTION & GROUPING RULE:
+           - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
+           - CRITICAL GROUPING RULE: When sub-items, breakdown fees, or charges (e.g., Other Charges: 1) Waiting hour, 2) Admin Fee, etc.) belong to a main category or item, DO NOT split them into separate rows. Combine them into a single row's "Description" or "ItemName" using line breaks (\\n).
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
@@ -1003,23 +999,105 @@ if menu == "서류 통합 생성":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            column_config = {
-                "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
-                "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정"),
-                "Description": st.column_config.TextColumn("Description", help="직접 클릭하여 입력/수정"),
-                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0),
-                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
-                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
-                "Remarks": st.column_config.TextColumn("Remarks", help="직접 클릭하여 입력/수정"),
-            }
-
             df_current = clean_df(st.session_state['doc_items'].copy())
-            
             cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             for c in cols_order:
                 if c not in df_current.columns:
                     df_current[c] = "" if c not in ["UnitPrice", "Amount"] else 0.0
             df_current = clean_df(df_current[cols_order])
+
+            # ⭐ [신규] 수동 행 합치기 / 나누기 도구
+            with st.expander("🛠️ 행 합치기 / 나누기 도구 (Merge & Split Rows)", expanded=False):
+                m_col1, m_col2 = st.columns(2)
+                row_indices = list(range(1, len(df_current) + 1))
+                
+                with m_col1:
+                    st.markdown("**🧩 선택 행 하나로 합치기**")
+                    selected_rows_to_merge = st.multiselect("합칠 행 번호 선택 (2개 이상)", options=row_indices, key="merge_rows_select")
+                    if st.button("🧩 선택 행 합치기", key="btn_merge_rows"):
+                        if len(selected_rows_to_merge) < 2:
+                            st.warning("합칠 행을 2개 이상 선택해주세요.")
+                        else:
+                            zero_idx = [r - 1 for r in selected_rows_to_merge]
+                            target_rows = df_current.iloc[zero_idx]
+                            
+                            merged_pno = next((clean_str(p) for p in target_rows['PartNo'] if clean_str(p)), "")
+                            merged_iname = "\n".join([clean_str(i) for i in target_rows['ItemName'] if clean_str(i)])
+                            merged_desc = "\n".join([clean_str(d) for d in target_rows['Description'] if clean_str(d)])
+                            merged_remarks = "\n".join([clean_str(r) for r in target_rows['Remarks'] if clean_str(r)])
+                            
+                            merged_qty = sum([safe_float(q) for q in target_rows['Qty'] if safe_float(q) > 0])
+                            merged_amt = sum([safe_float(a) for a in target_rows['Amount']])
+                            first_u_price = safe_float(target_rows.iloc[0]['UnitPrice'])
+                            
+                            merged_row = {
+                                "PartNo": merged_pno,
+                                "ItemName": merged_iname,
+                                "Description": merged_desc,
+                                "Qty": f"{int(merged_qty)}" if merged_qty == int(merged_qty) and merged_qty > 0 else (f"{merged_qty}" if merged_qty > 0 else ""),
+                                "UnitPrice": first_u_price,
+                                "Amount": merged_amt,
+                                "Remarks": merged_remarks
+                            }
+                            
+                            insert_pos = min(zero_idx)
+                            df_remaining = df_current.drop(df_current.index[zero_idx]).reset_index(drop=True)
+                            df_top = df_remaining.iloc[:insert_pos]
+                            df_bottom = df_remaining.iloc[insert_pos:]
+                            
+                            new_df = pd.concat([df_top, pd.DataFrame([merged_row]), df_bottom], ignore_index=True)
+                            st.session_state['doc_items'] = clean_df(new_df)
+                            st.success("선택한 행이 1개로 성공적으로 합쳐졌습니다.")
+                            st.rerun()
+
+                with m_col2:
+                    st.markdown("**✂️ 선택 행 여러 줄로 나누기**")
+                    selected_row_to_split = st.selectbox("나눌 행 번호 선택", options=[None] + row_indices, key="split_row_select")
+                    if st.button("✂️ 선택 행 나누기", key="btn_split_row"):
+                        if selected_row_to_split is None:
+                            st.warning("나눌 행 번호를 선택해주세요.")
+                        else:
+                            split_target_idx = selected_row_to_split - 1
+                            target_row = df_current.iloc[split_target_idx]
+                            
+                            desc_text = clean_str(target_row['Description'])
+                            iname_text = clean_str(target_row['ItemName'])
+                            
+                            lines = [line.strip() for line in re.split(r'\n|<br>', desc_text if desc_text else iname_text) if line.strip()]
+                            
+                            if len(lines) <= 1:
+                                st.info("해당 행은 줄바꿈이 없거나 1줄이어서 나눌 수 없습니다.")
+                            else:
+                                split_rows = []
+                                for idx_l, line in enumerate(lines):
+                                    split_rows.append({
+                                        "PartNo": clean_str(target_row['PartNo']) if idx_l == 0 else "",
+                                        "ItemName": clean_str(target_row['ItemName']) if idx_l == 0 else "",
+                                        "Description": line,
+                                        "Qty": clean_str(target_row['Qty']) if idx_l == 0 else "",
+                                        "UnitPrice": safe_float(target_row['UnitPrice']) if idx_l == 0 else 0.0,
+                                        "Amount": safe_float(target_row['Amount']) if idx_l == 0 else 0.0,
+                                        "Remarks": clean_str(target_row['Remarks']) if idx_l == 0 else ""
+                                    })
+                                
+                                df_remaining = df_current.drop(df_current.index[split_target_idx]).reset_index(drop=True)
+                                df_top = df_remaining.iloc[:split_target_idx]
+                                df_bottom = df_remaining.iloc[split_target_idx:]
+                                
+                                new_df = pd.concat([df_top, pd.DataFrame(split_rows), df_bottom], ignore_index=True)
+                                st.session_state['doc_items'] = clean_df(new_df)
+                                st.success(f"행이 {len(lines)}개의 개별 행으로 나누어졌습니다.")
+                                st.rerun()
+
+            column_config = {
+                "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
+                "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
+                "Description": st.column_config.TextColumn("Description", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
+                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0),
+                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0),
+                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0),
+                "Remarks": st.column_config.TextColumn("Remarks", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
+            }
 
             for i, row in df_current.iterrows():
                 qty = safe_float(row.get('Qty', ''))
