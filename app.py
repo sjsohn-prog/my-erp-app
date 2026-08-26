@@ -37,7 +37,7 @@ CURRENCY_OPTIONS = [
 ]
 
 STATUS_OPTIONS = [
-    "Quoted", "PO Received", "Invoiced", "Paid", "Cancelled", "Draft"
+    "🟡 Quoted", "🔵 PO Received", "🟣 Invoiced", "🟢 Paid", "🔴 Cancelled", "⚪ Draft"
 ]
 
 def get_secret(key, default=""):
@@ -160,8 +160,8 @@ TRANSLATIONS = {
         "total_records": "**총 `{count}` 건 조회됨** (전체 `{total}` 건 중)",
         "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
         "no_ledger": "관리대장에 등록된 서류 내역이 없습니다.",
-        "ai_db_title": "🤖 AI 단가표 수집기",
-        "upload_db_label": "단가표 파일 업로드",
+        "ai_db_title": "🤖 AI DB 수집기",
+        "upload_db_label": "DB 파일 업로드",
         "parse_mode": "파싱 모드",
         "parse_mode_sheet": "📌 특정 시트 선택",
         "parse_mode_all": "🚀 전체 시트 파싱",
@@ -215,8 +215,8 @@ TRANSLATIONS = {
         "total_records": "**Total `{count}` record(s) found** (Out of `{total}`)",
         "btn_download_csv": "📥 Download Filtered Excel (CSV)",
         "no_ledger": "No document records found in the ledger.",
-        "ai_db_title": "🤖 AI Price List Extractor",
-        "upload_db_label": "Upload Price List File",
+        "ai_db_title": "🤖 AI DB Collector",
+        "upload_db_label": "Upload DB File",
         "parse_mode": "Parsing Mode",
         "parse_mode_sheet": "📌 Select Specific Sheet",
         "parse_mode_all": "🚀 Parse All Sheets",
@@ -416,7 +416,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (Remarks 품목 표 최하단 통합 반영)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -514,7 +514,6 @@ INLINE_HTML_TEMPLATE = """
                 <td class="col-amt">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
-            <!-- ⭐ [Remarks & Deviations 품목 표 내부 통합] -->
             {% if bottom_remarks %}
             <tr>
                 <td colspan="5" style="border: 1.5px solid #000; padding: 6px 8px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
@@ -570,7 +569,6 @@ def clean_df(df):
         df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0", "nan.0"], "")
     return df
 
-# ⭐ 통화 기호 자동 부착 처리 함수
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -666,16 +664,16 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
         if "IssueDate" not in ledger_df.columns:
             ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", datetime.now().strftime("%Y-%m-%d")))
         if "Status" not in ledger_df.columns:
-            ledger_df.insert(3, "Status", "Quoted")
+            ledger_df.insert(3, "Status", "🟡 Quoted")
 
     issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     doc_date_str = doc_date_str or "-"
     logged_user = user_email or st.session_state.get('user_email', 'Unknown')
 
-    if doc_type == "Quotation": default_status = "Quoted"
-    elif doc_type == "Purchase Order": default_status = "PO Received"
-    elif doc_type == "Invoice": default_status = "Invoiced"
-    else: default_status = "Quoted"
+    if doc_type == "Quotation": default_status = "🟡 Quoted"
+    elif doc_type == "Purchase Order": default_status = "🔵 PO Received"
+    elif doc_type == "Invoice": default_status = "🟣 Invoiced"
+    else: default_status = "🟡 Quoted"
 
     new_entry = pd.DataFrame([{
         "IssueDate": issue_date_str,
@@ -785,10 +783,8 @@ def get_ai_response(api_key, content_list, mode="flash"):
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    if mode == "thinking":
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash', 'gemini-1.5-flash']
-    else:
-        candidate_models = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    # ⭐ 구버전 gemini-1.5-flash 완전 삭제 및 gemini-3.6-flash 모델 고정
+    candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash']
 
     last_err = None
     for model_name in candidate_models:
@@ -804,7 +800,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
         except Exception as e:
             last_err = e
             continue
-    raise Exception(f"AI 모델 호출 실패: {last_err}")
+    raise Exception(f"Gemini 3.6 Flash 모델 호출에 실패했습니다: {last_err}")
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
@@ -936,10 +932,19 @@ elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
 elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
 else: menu = "발행 이력 조회"
 
+# ⭐ 메뉴 변경 시 잔여 백그라운드 에러 자동 청소 로직
+if 'current_menu' not in st.session_state:
+    st.session_state['current_menu'] = menu
+elif st.session_state['current_menu'] != menu:
+    st.session_state['current_menu'] = menu
+    if st.session_state['bg_task']['status'] == 'error':
+        st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
+
 task = st.session_state['bg_task']
 if is_running:
     st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
-elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
+elif task['status'] == 'error' and menu == "서류 통합 생성":
+    st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
 # 6. 서류 통합 생성
@@ -1130,7 +1135,6 @@ if menu == "서류 통합 생성":
 
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
-            # ⭐ [환율 자동 수치 재계산] 통화(Currency) 변경 시 단가 및 금액 자동 수치 환산 (통화 기호 연동)
             curr_currency = currency if currency else "KRW"
             last_currency = st.session_state.get('last_currency', curr_currency)
             curr_sym = get_currency_symbol(curr_currency)
@@ -1147,12 +1151,12 @@ if menu == "서류 통합 생성":
                             u_p = safe_float(row_c.get('UnitPrice', 0))
                             amt = safe_float(row_c.get('Amount', 0))
                             if u_p > 0:
-                                new_up = round(u_p * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                fmt_up = f"{new_up:,.2f}" if curr_currency != "KRW" else f"{new_up:,.0f}"
+                                new_up = round(u_p * conv_factor, 2 if curr_currency not in ["KRW", "JPY"] else 0)
+                                fmt_up = f"{new_up:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{new_up:,.0f}"
                                 df_items_conv.at[idx_c, 'UnitPrice'] = f"{curr_sym}{fmt_up}"
                             if amt > 0:
-                                new_amt = round(amt * conv_factor, 2 if curr_currency != "KRW" else 0)
-                                fmt_amt = f"{new_amt:,.2f}" if curr_currency != "KRW" else f"{new_amt:,.0f}"
+                                new_amt = round(amt * conv_factor, 2 if curr_currency not in ["KRW", "JPY"] else 0)
+                                fmt_amt = f"{new_amt:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{new_amt:,.0f}"
                                 df_items_conv.at[idx_c, 'Amount'] = f"{curr_sym}{fmt_amt}"
                         st.session_state['doc_items'] = clean_df(df_items_conv)
                         
@@ -1191,8 +1195,8 @@ if menu == "서류 통합 생성":
                             merged_amt = sum([safe_float(a) for a in target_rows['Amount']])
                             first_u_price = safe_float(target_rows.iloc[0]['UnitPrice'])
                             
-                            fmt_u_price = f"{first_u_price:,.2f}" if curr_currency != "KRW" else f"{first_u_price:,.0f}"
-                            fmt_m_amt = f"{merged_amt:,.2f}" if curr_currency != "KRW" else f"{merged_amt:,.0f}"
+                            fmt_u_price = f"{first_u_price:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{first_u_price:,.0f}"
+                            fmt_m_amt = f"{merged_amt:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{merged_amt:,.0f}"
 
                             merged_row = {
                                 "PartNo": merged_pno,
@@ -1253,7 +1257,6 @@ if menu == "서류 통합 생성":
                                 st.success(f"행이 {len(lines)}개의 개별 행으로 나누어졌습니다.")
                                 st.rerun()
 
-            # ⭐ [디폴트 빈칸 유지] 모든 컬럼을 자유 텍스트형(TextColumn)으로 세팅하여 None/0.00 출현 원천 차단
             column_config = {
                 "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
                 "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정 (줄바꿈 가능)"),
@@ -1270,7 +1273,7 @@ if menu == "서류 통합 생성":
                 amt_curr = safe_float(row.get('Amount', ''))
                 if amt_curr == 0.0 and u_price > 0 and qty > 0:
                     calc_amt = qty * u_price
-                    fmt_a = f"{calc_amt:,.2f}" if curr_currency != "KRW" else f"{calc_amt:,.0f}"
+                    fmt_a = f"{calc_amt:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{calc_amt:,.0f}"
                     df_current.at[i, 'Amount'] = f"{curr_sym}{fmt_a}"
 
             edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
@@ -1294,12 +1297,12 @@ if menu == "서류 통합 생성":
                     if u_p_curr == 0.0:
                         u_p = safe_float(match_row.get('UnitPrice', 0.0))
                         if u_p > 0:
-                            fmt_u = f"{u_p:,.2f}" if curr_currency != "KRW" else f"{u_p:,.0f}"
+                            fmt_u = f"{u_p:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{u_p:,.0f}"
                             edited_df.at[i, 'UnitPrice'] = f"{curr_sym}{fmt_u}"
 
             edited_df = clean_df(edited_df)
 
-            # ⭐ [Total Amount 자동 계산 & 100% 수동 수정 UI]
+            # ⭐ [Total Amount 연산 보원 및 수정 안전성 강화]
             calc_total_val = edited_df["Amount"].apply(safe_float).sum()
             fmt_tot = f"{calc_total_val:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{calc_total_val:,.0f}"
             default_total_str = f"{curr_sym}{fmt_tot}"
@@ -1314,11 +1317,11 @@ if menu == "서류 통합 생성":
             vat_note_str = vat_note_input.strip()
 
             # 이중 통화 환산 배지
-            if curr_symbol == "KRW":
+            if curr_currency == "KRW":
                 converted_val = calc_total_val / usd_krw if usd_krw else 0
                 st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
             else:
-                src_rate = get_rate_per_usd(curr_symbol, live_rates)
+                src_rate = get_rate_per_usd(curr_currency, live_rates)
                 converted_val_krw = (calc_total_val / src_rate) * usd_krw if src_rate > 0 else 0
                 st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
 
@@ -1390,7 +1393,7 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=currency or "KRW")
+            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
@@ -1487,9 +1490,27 @@ elif menu == "서류 관리대장":
             if "IssueDate" not in ledger_df.columns:
                 ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", "-"))
             if "Status" not in ledger_df.columns:
-                ledger_df.insert(3, "Status", "Quoted")
+                ledger_df.insert(3, "Status", "🟡 Quoted")
             if "CreatedBy" not in ledger_df.columns:
                 ledger_df["CreatedBy"] = "-"
+
+            status_migration = {
+                "Quoted": "🟡 Quoted", "PO Received": "🔵 PO Received",
+                "Invoiced": "🟣 Invoiced", "Paid": "🟢 Paid",
+                "Cancelled": "🔴 Cancelled", "Draft": "⚪ Draft"
+            }
+            ledger_df["Status"] = ledger_df["Status"].replace(status_migration)
+
+            status_counts = ledger_df["Status"].value_counts()
+            
+            c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
+            c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
+            c_m2.metric("🔵 PO Received (수주)", f"{status_counts.get('🔵 PO Received', 0)} 건")
+            c_m3.metric("🟣 Invoiced (청구)", f"{status_counts.get('🟣 Invoiced', 0)} 건")
+            c_m4.metric("🟢 Paid (입금완료)", f"{status_counts.get('🟢 Paid', 0)} 건")
+            c_m5.metric("🔴 Cancelled (취소)", f"{status_counts.get('🔴 Cancelled', 0)} 건")
+
+            st.markdown("<hr style='margin: 12px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
 
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
             
@@ -1524,7 +1545,7 @@ elif menu == "서류 관리대장":
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
 
             ledger_config = {
-                "Status": st.column_config.SelectboxColumn("Status (파이프라인)", options=STATUS_OPTIONS, required=True),
+                "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=STATUS_OPTIONS, required=True),
                 "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
                 "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
                 "DocType": st.column_config.TextColumn("Doc Type", disabled=True),
