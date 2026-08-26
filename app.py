@@ -1207,7 +1207,6 @@ if menu == "서류 분석 / 생성 Master":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    # 서류 대장 및 히스토리에서 동적 드롭다운 옵션 추출
     our_ledger = safe_read_csv(OUR_DB_FILE, doc_db_cols)
     cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
     history = load_history()
@@ -1338,7 +1337,7 @@ if menu == "서류 분석 / 생성 Master":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            # 자재 단가 마스터 DB에서 품목 불러오기 헬퍼
+            # 자재 단가 마스터 DB에서 품목 불러오기
             item_master_data = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
             if not item_master_data.empty:
                 item_options = ["-- 자재 단가 마스터 DB에서 품목 선택하여 자동 입력 --"] + [
@@ -1397,7 +1396,7 @@ if menu == "서류 분석 / 생성 Master":
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
 
-            # DB 저장 및 등록 섹션 (순서 변경 적용: 1.일괄등록, 2.헤더등록, 3.품목등록)
+            # DB 저장 및 등록 섹션 (순서: 1.일괄등록, 2.헤더등록, 3.품목등록)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1462,19 +1461,24 @@ elif menu == "서류 관리 대장":
         db_df = ensure_cols(db_df, doc_db_cols)
         db_df = clean_df(db_df)
         
-        # StreamlitAPIException 형변환 치유: 숫자형 컬럼 및 옵션 값 정제
-        db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-        db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"], errors='coerce').fillna(0).astype(int)
+        # 1. 숫자형 컬럼 명시적 float 캐스팅 (StreamlitAPIException 방지)
+        db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
+        db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
 
-        doc_type_opts = ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-"]
-        db_df["DocType"] = db_df["DocType"].apply(lambda x: x if x in doc_type_opts else "Quotation")
+        # 2. Selectbox 옵션 허용값 산출 및 텍스트 컬럼 안전 처리
+        doc_type_opts = ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-", ""]
+        db_df["DocType"] = db_df["DocType"].astype(str).apply(lambda x: x if x in doc_type_opts else "Quotation")
 
-        curr_opts = CURRENCY_OPTIONS + ["-"]
-        db_df["Currency"] = db_df["Currency"].apply(lambda x: x if x in curr_opts else "KRW")
+        curr_opts = CURRENCY_OPTIONS + ["-", ""]
+        db_df["Currency"] = db_df["Currency"].astype(str).apply(lambda x: x if x in curr_opts else "KRW")
 
-        db_df["Status"] = db_df["Status"].apply(lambda x: x if x in STATUS_OPTIONS else "🟡 Quoted")
+        status_opts = STATUS_OPTIONS + ["-", ""]
+        db_df["Status"] = db_df["Status"].astype(str).apply(lambda x: x if x in status_opts else "🟡 Quoted")
 
-        # Status 현황판 (복원)
+        for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy"]:
+            db_df[col] = db_df[col].fillna("-").astype(str)
+
+        # 3. Status 현황판 (복원)
         status_counts = db_df["Status"].value_counts()
         c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
         c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
@@ -1517,12 +1521,18 @@ elif menu == "서류 관리 대장":
                 "TargetName": st.column_config.TextColumn("Target Name"),
                 "Currency": st.column_config.SelectboxColumn("Currency", options=curr_opts),
                 "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f"),
-                "ItemCount": st.column_config.NumberColumn("Item Count"),
+                "ItemCount": st.column_config.NumberColumn("Item Count", format="%d"),
                 "CreatedBy": st.column_config.TextColumn("Created By"),
-                "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=STATUS_OPTIONS, required=True),
+                "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=status_opts),
             }
 
-            edited_df = st.data_editor(filtered_df, column_config=ledger_config, num_rows="dynamic", use_container_width=True, key=f"{tab_key_prefix}_editor")
+            edited_df = st.data_editor(
+                filtered_df, 
+                column_config=ledger_config, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key=f"{tab_key_prefix}_editor"
+            )
 
             if st.button("💾 변경사항 저장", key=f"btn_save_{tab_key_prefix}"):
                 if selected_col == t("all") and not keyword.strip():
@@ -1606,12 +1616,15 @@ elif menu == "자재 단가 마스터 DB":
     item_df = ensure_cols(item_df, item_master_cols)
     item_df = clean_df(item_df)
 
-    # StreamlitAPIException 형변환 치유
-    item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-    item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+    # 숫자형 및 옵션 안전 정제
+    item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
+    item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
     
-    curr_opts = CURRENCY_OPTIONS + ["-"]
-    item_df["Currency"] = item_df["Currency"].apply(lambda x: x if x in curr_opts else "KRW")
+    curr_opts = CURRENCY_OPTIONS + ["-", ""]
+    item_df["Currency"] = item_df["Currency"].astype(str).apply(lambda x: x if x in curr_opts else "KRW")
+
+    for col in ["PartNo", "ItemName", "Description", "Supplier", "Remarks"]:
+        item_df[col] = item_df[col].fillna("").astype(str)
 
     with st.container(border=True):
         if not item_df.empty:
@@ -1647,7 +1660,13 @@ elif menu == "자재 단가 마스터 DB":
                 "Remarks": st.column_config.TextColumn("Remarks"),
             }
 
-            edited_df = st.data_editor(filtered_df, column_config=item_config, num_rows="dynamic", use_container_width=True, key="item_master_editor")
+            edited_df = st.data_editor(
+                filtered_df, 
+                column_config=item_config, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key="item_master_editor"
+            )
 
             if st.button("💾 자재 마스터 DB 변경사항 저장", key="btn_save_item_master"):
                 if selected_col == t("all") and not keyword.strip():
@@ -1752,8 +1771,8 @@ elif menu == "관리자 메뉴":
         with admin_tab1:
             st.markdown("### 🏢 자사 서류 대장 수정 및 삭제")
             our_df_admin = clean_df(ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols))
-            our_df_admin["TotalAmount"] = pd.to_numeric(our_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-            our_df_admin["ItemCount"] = pd.to_numeric(our_df_admin["ItemCount"], errors='coerce').fillna(0).astype(int)
+            our_df_admin["TotalAmount"] = pd.to_numeric(our_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
+            our_df_admin["ItemCount"] = pd.to_numeric(our_df_admin["ItemCount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
             
             edited_our_admin = st.data_editor(our_df_admin, num_rows="dynamic", use_container_width=True, key="admin_our_editor")
             col1, col2 = st.columns([1, 1])
@@ -1771,8 +1790,8 @@ elif menu == "관리자 메뉴":
         with admin_tab2:
             st.markdown("### 🤝 고객사 / 공급사 서류 대장 수정 및 삭제")
             cust_df_admin = clean_df(ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols))
-            cust_df_admin["TotalAmount"] = pd.to_numeric(cust_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-            cust_df_admin["ItemCount"] = pd.to_numeric(cust_df_admin["ItemCount"], errors='coerce').fillna(0).astype(int)
+            cust_df_admin["TotalAmount"] = pd.to_numeric(cust_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
+            cust_df_admin["ItemCount"] = pd.to_numeric(cust_df_admin["ItemCount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
 
             edited_cust_admin = st.data_editor(cust_df_admin, num_rows="dynamic", use_container_width=True, key="admin_cust_editor")
             col1, col2 = st.columns([1, 1])
@@ -1790,8 +1809,8 @@ elif menu == "관리자 메뉴":
         with admin_tab3:
             st.markdown("### 📦 자재 단가 마스터 DB 수정 및 삭제")
             item_df_admin = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
-            item_df_admin["BuyPrice"] = pd.to_numeric(item_df_admin["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-            item_df_admin["ListPrice"] = pd.to_numeric(item_df_admin["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+            item_df_admin["BuyPrice"] = pd.to_numeric(item_df_admin["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
+            item_df_admin["ListPrice"] = pd.to_numeric(item_df_admin["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
 
             edited_item_admin = st.data_editor(item_df_admin, num_rows="dynamic", use_container_width=True, key="admin_item_editor")
             col1, col2 = st.columns([1, 1])
