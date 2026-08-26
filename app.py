@@ -329,7 +329,7 @@ custom_css = """
         padding-bottom: 1rem !important;
     }
     
-    /* 2번 요구사항: KR EN 스위치를 상단 헤더 툴바 우측으로 위로 고정 이동 */
+    /* KR EN 스위치를 상단 헤더 툴바 우측으로 위로 고정 이동 */
     div[data-testid="stRadio"]:has(input[aria-label="Language"]),
     div[data-testid="stRadio"]:has(input[value="KR"]) {
         position: fixed !important;
@@ -346,6 +346,12 @@ custom_css = """
     div[data-testid="stRadio"]:has(input[value="KR"]) > div {
         flex-direction: row !important;
         gap: 10px !important;
+    }
+
+    /* 파일 업로드 칩 옆에 표시되는 불필요한 '+' 추가 버튼 숨기기 */
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] ~ button {
+        display: none !important;
     }
 
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
@@ -418,7 +424,7 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 2번 요구사항: 상단 우측 툴바 정렬 KR / EN 언어 선택 스위치
+# 상단 우측 위치 KR / EN 스위치
 selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 if selected_lang != st.session_state['lang']:
     st.session_state['lang'] = selected_lang
@@ -582,11 +588,6 @@ INLINE_HTML_TEMPLATE = """
     /* 하단 비고 박스: 0.9px 테두리 */
     .remarks-box { border: 0.9px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
     .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
-
-    /* 수정된 칸(셀) 형광 노랑 하이라이트 클래스 */
-    .highlight-cell {
-        background-color: #FFFF70 !important;
-    }
 </style>
 </head>
 <body>
@@ -651,10 +652,10 @@ INLINE_HTML_TEMPLATE = """
             {% for item in items %}
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc {% if item.edited_desc %}highlight-cell{% endif %}">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
-                <td class="col-qty {% if item.edited_qty %}highlight-cell{% endif %}">{{ item.Qty }}</td>
-                <td class="col-price {% if item.edited_price %}highlight-cell{% endif %}" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
-                <td class="col-amt {% if item.edited_amt %}highlight-cell{% endif %}" style="text-align: right;">{{ item.AmountFormatted }}</td>
+                <td class="col-desc">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
+                <td class="col-qty">{{ item.Qty }}</td>
+                <td class="col-price" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
+                <td class="col-amt" style="text-align: right;">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
             {% if bottom_remarks %}
@@ -847,9 +848,6 @@ if 'doc_info' not in st.session_state:
 
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
-
-if 'doc_items_orig' not in st.session_state:
-    st.session_state['doc_items_orig'] = pd.DataFrame()
 
 # ==========================================
 # 4. AI 파싱 엔진
@@ -1092,7 +1090,8 @@ if menu == "서류 통합 생성":
         
         current_logged_user = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
 
-        # 1번 요구사항: 외부 수신 문서 파싱 시 원솔루션 담당자가 있으면 그 사람을 PIC에 넣고, 없으면 로그인한 유저 배치
+        # 1번 요구사항 정밀 반영:
+        # 외부 문서 수신 시 원솔루션 수신자 담당자가 명시되어 있으면 그 사람을 PIC에, 없으면 현재 로그인 유저를 PIC로 지정
         if not is_our_company_issuer and issuer_comp:
             to_field_val = issuer_comp
             attn_field_val = issuer_pic
@@ -1177,10 +1176,6 @@ if menu == "서류 통합 생성":
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
             st.session_state['doc_items'] = clean_df(items_df)
-            st.session_state['doc_items_orig'] = clean_df(items_df).copy()
-        else:
-            st.session_state['doc_items_orig'] = pd.DataFrame()
-
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI Analysis Complete & Roles Auto-Reversed.")
 
@@ -1199,7 +1194,6 @@ if menu == "서류 통합 생성":
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
-            st.session_state['doc_items_orig'] = pd.DataFrame()
             st.session_state['last_currency'] = "KRW"
             
             for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
@@ -1399,35 +1393,7 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            orig_df = st.session_state.get('doc_items_orig', pd.DataFrame())
-            edited_records = clean_df(edited_df).to_dict("records")
-            
-            items_with_flags = []
-            for idx_r, row_r in enumerate(edited_records):
-                item_entry = dict(row_r)
-                if not orig_df.empty and idx_r < len(orig_df):
-                    orig_row = orig_df.iloc[idx_r]
-                    item_entry['edited_desc'] = (clean_str(row_r.get('ItemName')) != clean_str(orig_row.get('ItemName'))) or \
-                                                (clean_str(row_r.get('Description')) != clean_str(orig_row.get('Description'))) or \
-                                                (clean_str(row_r.get('Remarks')) != clean_str(orig_row.get('Remarks'))) or \
-                                                (clean_str(row_r.get('PartNo')) != clean_str(orig_row.get('PartNo')))
-                    item_entry['edited_qty'] = (clean_str(row_r.get('Qty')) != clean_str(orig_row.get('Qty')))
-                    item_entry['edited_price'] = (safe_float(row_r.get('UnitPrice')) != safe_float(orig_row.get('UnitPrice')))
-                    item_entry['edited_amt'] = (safe_float(row_r.get('Amount')) != safe_float(orig_row.get('Amount')))
-                elif not orig_df.empty:
-                    item_entry['edited_desc'] = True
-                    item_entry['edited_qty'] = True
-                    item_entry['edited_price'] = True
-                    item_entry['edited_amt'] = True
-                else:
-                    item_entry['edited_desc'] = False
-                    item_entry['edited_qty'] = False
-                    item_entry['edited_price'] = False
-                    item_entry['edited_amt'] = False
-                    
-                items_with_flags.append(item_entry)
-
-            pdf_formatted_items = prepare_items_for_pdf(items_with_flags, currency=curr_currency)
+            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
