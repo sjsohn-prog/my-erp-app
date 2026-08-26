@@ -59,6 +59,40 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
+# [추가된 함수 1] DataFrame 텍스트 정제 함수
+def clean_df(df):
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].apply(clean_str)
+    return df
+
+# [추가된 함수 2] 환율 데이터 가져오기 함수
+def get_exchange_rates():
+    return {
+        "USD": 1.0, "KRW": 1350.0, "EUR": 0.92, "JPY": 150.0,
+        "CNY": 7.2, "SGD": 1.35, "GBP": 0.79, "HKD": 7.8, "AED": 3.67
+    }
+
+# [추가된 함수 3] 통화별 기준 환율 반환 함수
+def get_rate_per_usd(currency, rates):
+    c = clean_str(currency).upper()
+    return rates.get(c, 1.0)
+
+def safe_float(val, default=0.0):
+    if val is None or pd.isna(val):
+        return default
+    s = str(val).replace(',', '').strip()
+    match = re.search(r"[-+]?\d*\.\d+|\d+", s)
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return default
+    return default
+
 def safe_float(val, default=0.0):
     if val is None or pd.isna(val):
         return default
