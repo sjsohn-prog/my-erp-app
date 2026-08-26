@@ -1302,7 +1302,7 @@ if menu == "자사 서류 생성":
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days", "90 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance", "60 Days Net"], "payment_due")
 
-            project_title = render_unified_input("Project Title (하단 전체 한 줄)", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
+            project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
             curr_currency = currency if currency else "KRW"
@@ -1637,19 +1637,25 @@ elif menu == "자사 서류 DB 관리":
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
             if up_ext in ['xlsx', 'xls']:
-                sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-                parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="our_db_parse_mode")
-                if parse_mode == t("parse_mode_sheet"):
-                    selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="our_db_sheet_sel")
-                    if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze"):
-                        st.session_state['bg_task']['type'] = 'our_db_parse'
-                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
-                        st.rerun()
-                else:
-                    if st.button(t("btn_parse_all"), disabled=is_running, key="btn_our_db_parse_all"):
-                        st.session_state['bg_task']['type'] = 'our_db_parse'
-                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
-                        st.rerun()
+                try:
+                    excel_obj = pd.ExcelFile(io.BytesIO(uploaded_db_file.getvalue()))
+                    sheet_names = excel_obj.sheet_names
+                    parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="our_db_parse_mode")
+                    if parse_mode == t("parse_mode_sheet"):
+                        selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="our_db_sheet_sel")
+                        if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze"):
+                            st.session_state['bg_task']['type'] = 'our_db_parse'
+                            start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
+                            st.rerun()
+                    else:
+                        if st.button(t("btn_parse_all"), disabled=is_running, key="btn_our_db_parse_all"):
+                            st.session_state['bg_task']['type'] = 'our_db_parse'
+                            start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
+                            st.rerun()
+                except ImportError:
+                    st.error("❌ 'openpyxl' 라이브러리가 필요합니다. requirements.txt에 openpyxl을 추가해 주세요.")
+                except Exception as e:
+                    st.error(f"❌ 엑셀 로딩 오류: {e}")
             else:
                 if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze_direct"):
                     st.session_state['bg_task']['type'] = 'our_db_parse'
@@ -1760,19 +1766,25 @@ elif menu == "고객사 서류 DB 관리":
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
             if up_ext in ['xlsx', 'xls']:
-                sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-                parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="cust_db_parse_mode")
-                if parse_mode == t("parse_mode_sheet"):
-                    selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="cust_db_sheet_sel")
-                    if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze"):
-                        st.session_state['bg_task']['type'] = 'customer_db_parse'
-                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
-                        st.rerun()
-                else:
-                    if st.button(t("btn_parse_all"), disabled=is_running, key="btn_cust_db_parse_all"):
-                        st.session_state['bg_task']['type'] = 'customer_db_parse'
-                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
-                        st.rerun()
+                try:
+                    excel_obj = pd.ExcelFile(io.BytesIO(uploaded_db_file.getvalue()))
+                    sheet_names = excel_obj.sheet_names
+                    parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="cust_db_parse_mode")
+                    if parse_mode == t("parse_mode_sheet"):
+                        selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="cust_db_sheet_sel")
+                        if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze"):
+                            st.session_state['bg_task']['type'] = 'customer_db_parse'
+                            start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
+                            st.rerun()
+                    else:
+                        if st.button(t("btn_parse_all"), disabled=is_running, key="btn_cust_db_parse_all"):
+                            st.session_state['bg_task']['type'] = 'customer_db_parse'
+                            start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
+                            st.rerun()
+                except ImportError:
+                    st.error("❌ 'openpyxl' 라이브러리가 필요합니다. requirements.txt에 openpyxl을 추가해 주세요.")
+                except Exception as e:
+                    st.error(f"❌ 엑셀 로딩 오류: {e}")
             else:
                 if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze_direct"):
                     st.session_state['bg_task']['type'] = 'customer_db_parse'
