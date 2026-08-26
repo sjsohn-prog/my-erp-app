@@ -51,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 관리대장 및 마스터 DB 열 레이아웃
+# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
 ledger_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
@@ -469,7 +469,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (원솔루션 로고 크기 58px 상향 & 표 테두리 0.9px 통일)
+# (수정된 셀 하이라이팅 background-color: #FFFF70 스타일 정의 포함)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -576,6 +576,11 @@ INLINE_HTML_TEMPLATE = """
     /* 하단 비고 박스: 0.9px 테두리 */
     .remarks-box { border: 0.9px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
     .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
+
+    /* 수정된 칸(셀) 형광 노랑 하이라이트 클래스 */
+    .highlight-cell {
+        background-color: #FFFF70 !important;
+    }
 </style>
 </head>
 <body>
@@ -597,7 +602,7 @@ INLINE_HTML_TEMPLATE = """
         </table>
     </div>
 
-    <!-- 헤더 정보 표 (0.9px 테두리) -->
+    <!-- 헤더 정보 표 -->
     <table class="hdr-table">
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
@@ -640,10 +645,10 @@ INLINE_HTML_TEMPLATE = """
             {% for item in items %}
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
-                <td class="col-qty">{{ item.Qty }}</td>
-                <td class="col-price">{{ item.UnitPriceFormatted }}</td>
-                <td class="col-amt">{{ item.AmountFormatted }}</td>
+                <td class="col-desc {% if item.edited_desc %}highlight-cell{% endif %}">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
+                <td class="col-qty {% if item.edited_qty %}highlight-cell{% endif %}">{{ item.Qty }}</td>
+                <td class="col-price {% if item.edited_price %}highlight-cell{% endif %}" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
+                <td class="col-amt {% if item.edited_amt %}highlight-cell{% endif %}" style="text-align: right;">{{ item.AmountFormatted }}</td>
             </tr>
             {% endfor %}
             {% if bottom_remarks %}
@@ -696,6 +701,7 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
+# 수정 셀 감지 및 PDF 하이라이팅 데이터 처리 함수
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -836,6 +842,9 @@ if 'doc_info' not in st.session_state:
 
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+
+if 'doc_items_orig' not in st.session_state:
+    st.session_state['doc_items_orig'] = pd.DataFrame()
 
 # ==========================================
 # 4. AI 파싱 엔진
@@ -1053,7 +1062,7 @@ elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (외부 발신 서류의 수신/발신 자동 반전 판정)
+# 6. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -1076,7 +1085,6 @@ if menu == "서류 통합 생성":
         issuer_check = (issuer_comp + " " + issuer_pic).lower()
         is_our_company_issuer = any(kw in issuer_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in issuer_check)
         
-        # 원솔루션이 발행 주체가 아닌 경우 (STX 등 외부업체가 발신한 문서) -> 수신자(To/Attn)에 상대방 정보 배치 & PIC에 우리 담당자 배치
         if not is_our_company_issuer and issuer_comp:
             to_field_val = issuer_comp
             attn_field_val = issuer_pic
@@ -1149,6 +1157,11 @@ if menu == "서류 통합 생성":
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
             st.session_state['doc_items'] = clean_df(items_df)
+            # 원본 데이터 기준 스냅샷 보관 (수정 셀 감지용)
+            st.session_state['doc_items_orig'] = clean_df(items_df).copy()
+        else:
+            st.session_state['doc_items_orig'] = pd.DataFrame()
+
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI Analysis Complete & Roles Auto-Reversed.")
 
@@ -1167,6 +1180,7 @@ if menu == "서류 통합 생성":
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+            st.session_state['doc_items_orig'] = pd.DataFrame()
             st.session_state['last_currency'] = "KRW"
             
             for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
@@ -1366,7 +1380,36 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
+            # 수정한 칸 감지 및 형광노랑 플래그 부여
+            orig_df = st.session_state.get('doc_items_orig', pd.DataFrame())
+            edited_records = clean_df(edited_df).to_dict("records")
+            
+            items_with_flags = []
+            for idx_r, row_r in enumerate(edited_records):
+                item_entry = dict(row_r)
+                if not orig_df.empty and idx_r < len(orig_df):
+                    orig_row = orig_df.iloc[idx_r]
+                    item_entry['edited_desc'] = (clean_str(row_r.get('ItemName')) != clean_str(orig_row.get('ItemName'))) or \
+                                                (clean_str(row_r.get('Description')) != clean_str(orig_row.get('Description'))) or \
+                                                (clean_str(row_r.get('Remarks')) != clean_str(orig_row.get('Remarks'))) or \
+                                                (clean_str(row_r.get('PartNo')) != clean_str(orig_row.get('PartNo')))
+                    item_entry['edited_qty'] = (clean_str(row_r.get('Qty')) != clean_str(orig_row.get('Qty')))
+                    item_entry['edited_price'] = (safe_float(row_r.get('UnitPrice')) != safe_float(orig_row.get('UnitPrice')))
+                    item_entry['edited_amt'] = (safe_float(row_r.get('Amount')) != safe_float(orig_row.get('Amount')))
+                elif not orig_df.empty:
+                    item_entry['edited_desc'] = True
+                    item_entry['edited_qty'] = True
+                    item_entry['edited_price'] = True
+                    item_entry['edited_amt'] = True
+                else:
+                    item_entry['edited_desc'] = False
+                    item_entry['edited_qty'] = False
+                    item_entry['edited_price'] = False
+                    item_entry['edited_amt'] = False
+                    
+                items_with_flags.append(item_entry)
+
+            pdf_formatted_items = prepare_items_for_pdf(items_with_flags, currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
