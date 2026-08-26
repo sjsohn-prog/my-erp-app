@@ -51,9 +51,9 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# DB 및 서류 관리대장 컬럼 정의 (Status 맨 뒤, OurRef 4번째)
+# [수정됨] 자사/고객사 DB 컬럼 구성 (품목 단위)
 db_cols = [
-    "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"
+    "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks", "Status"
 ]
 
 OUR_DB_FILE = "our_db.csv"
@@ -183,7 +183,7 @@ TRANSLATIONS = {
         "mode_thinking": "🧠 Gemini 3.6 Flash (사고)",
         "upload_doc_label": "문서 및 파일 업로드 (PDF, JPG, PNG, XLSX, CSV)",
         "btn_ai_parse": "✨ AI 문서 분석",
-        "btn_reset": "🔄 서류 입력 초기화",
+        "btn_reset": "🔄 입력 초기화",
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
         "items_title": "📦 품목 상세 내역 (줄바꿈/엔터 지원 / 열 너비 자동 맞춤)",
         "remarks_title": "📝 Remarks & Deviations",
@@ -200,7 +200,7 @@ TRANSLATIONS = {
         "filter_keyword_ph": "검색어 입력...",
         "total_records": "**총 `{count}` 건 조회됨** (전체 `{total}` 건 중)",
         "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
-        "no_ledger": "등록된 서류 내역이 없습니다.",
+        "no_ledger": "등록된 내역이 없습니다.",
         "ai_db_title": "🤖 AI DB 수집기",
         "upload_db_label": "DB 파일/문서 업로드 (PDF, JPG, PNG, XLSX, CSV)",
         "parse_mode": "파싱 모드",
@@ -213,7 +213,7 @@ TRANSLATIONS = {
         "btn_save_db": "💾 DB 수정사항 저장",
         "pwd_admin_label": "관리자 비밀번호 입력",
         "pwd_err": "❌ 비밀번호가 올바르지 않습니다.",
-        "reg_success": "🎉 자사 서류 DB 등록 완료 (작성자: {user})",
+        "reg_success": "🎉 자사 서류 DB 등록 완료",
         "all": "전체",
     },
     "EN": {
@@ -235,7 +235,7 @@ TRANSLATIONS = {
         "mode_thinking": "🧠 Gemini 3.6 Flash (Thinking)",
         "upload_doc_label": "Upload Document/Data (PDF, JPG, PNG, XLSX, CSV)",
         "btn_ai_parse": "✨ Analyze Document",
-        "btn_reset": "🔄 Reset Form",
+        "btn_reset": "🔄 Reset",
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
         "items_title": "📦 Line Item Details (Multi-line supported / Auto-fit)",
         "remarks_title": "📝 Remarks & Deviations",
@@ -252,7 +252,7 @@ TRANSLATIONS = {
         "filter_keyword_ph": "Type keyword...",
         "total_records": "**Total `{count}` record(s) found** (Out of `{total}`)",
         "btn_download_csv": "📥 Download Filtered Excel (CSV)",
-        "no_ledger": "No document records found.",
+        "no_ledger": "No records found.",
         "ai_db_title": "🤖 AI DB Collector",
         "upload_db_label": "Upload DB File/Document (PDF, JPG, PNG, XLSX, CSV)",
         "parse_mode": "Parsing Mode",
@@ -265,7 +265,7 @@ TRANSLATIONS = {
         "btn_save_db": "💾 Save DB Changes",
         "pwd_admin_label": "Enter Admin Password",
         "pwd_err": "❌ Incorrect password.",
-        "reg_success": "🎉 Saved to In-house Doc DB (Creator: {user})",
+        "reg_success": "🎉 Saved to In-house Doc DB",
         "all": "All",
     }
 }
@@ -319,6 +319,7 @@ st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 if 'lang' not in st.session_state:
     st.session_state['lang'] = 'KR'
 
+# [수정됨] 파일 업로드 칩 옆 '+' 버튼 완전 제거 CSS 적용
 custom_css = """
 <style>
     .main .block-container {
@@ -346,13 +347,13 @@ custom_css = """
     }
 
     /* 파일 업로드 칩 옆의 '+' 버튼 완전 숨기기 */
-div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
-div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
-div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
-div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
-div[data-testid="stFileUploaderDropzone"] + div button {
-    display: none !important;
-}
+    div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
+    div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
+    div[data-testid="stFileUploaderDropzone"] + div button {
+        display: none !important;
+    }
 
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
@@ -424,7 +425,6 @@ div[data-testid="stFileUploaderDropzone"] + div button {
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 태극기 / 미국국기 언어 선택 스위치
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
 
@@ -805,35 +805,29 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_to_our_db(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
+# [수정됨] DB 저장 로직: 아이템 단위(Dataframe) 병합 저장 
+def save_to_our_db(items_df, doc_type):
+    if items_df is None or items_df.empty:
+        return
+        
     our_df = safe_read_csv(OUR_DB_FILE, db_cols)
     our_df = ensure_cols(our_df, db_cols)
-
-    issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    doc_date_str = doc_date_str or "-"
-    logged_user = user_email or st.session_state.get('user_email', 'Unknown')
 
     if doc_type == "Quotation": default_status = "🟡 Quoted"
     elif doc_type == "Purchase Order": default_status = "🔵 PO Received"
     elif doc_type == "Invoice": default_status = "🟣 Invoiced"
     else: default_status = "🟡 Quoted"
 
-    new_entry = pd.DataFrame([{
-        "IssueDate": issue_date_str,
-        "DocDate": doc_date_str,
-        "DocType": doc_type,
-        "OurRef": our_ref or "-",
-        "YourRef": your_ref or "-",
-        "ShipName": ship_name or "-",
-        "TargetName": target_name or "-",
-        "Currency": currency or "-", 
-        "TotalAmount": total_amount,
-        "ItemCount": item_count,
-        "CreatedBy": logged_user,
-        "Status": default_status
-    }])
+    new_entries = pd.DataFrame(columns=db_cols)
+    for c in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
+        if c in items_df.columns:
+            new_entries[c] = items_df[c]
+        else:
+            new_entries[c] = ""
+            
+    new_entries["Status"] = default_status
 
-    updated_df = pd.concat([our_df, new_entry], ignore_index=True)
+    updated_df = pd.concat([our_df, new_entries], ignore_index=True)
     updated_df = ensure_cols(updated_df, db_cols)
     updated_df.to_csv(OUR_DB_FILE, index=False)
 
@@ -887,6 +881,99 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 무료 요청 한도(Quota)를 초과했습니다. 약 30초 후 다시 시도하시거나, Google AI Studio에서 새 API Key/결제 계정을 등록해 주세요. (상세: {last_err})")
 
+def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode):
+    try:
+        task_state['status'] = 'running'
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
+        
+        file_ext = file_name.split('.')[-1].lower()
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        with open(save_path, "wb") as f:
+            f.write(file_bytes)
+
+        prompt = f"""
+        Extract document details into JSON format matching the fixed header fields and item list.
+        
+        CRITICAL RULES FOR EXTRACTION:
+        1. ISSUER & RECIPIENT DETAILS:
+           - "issuer_company": Name of the company issuing/sending this document (e.g., "STX Offshore & Shipbuilding Co., Ltd.").
+           - "issuer_pic": Person Name / Contact PIC of the issuing company (e.g., "Y.S KIM", "PREPARED BY").
+           - "recipient_company": Name of the recipient company if explicitly specified.
+           - "recipient_attn": Person Name specified in "Attention" / "Attn" of the recipient.
+
+        2. HEADER FIELDS ACCURACY EXTRACTION:
+           - "date_str": Document Issue Date (e.g. "2015.06.24").
+           - "validity": Quotation Validity duration (e.g. "30 Days", "14 Days", "60 Days"). DO NOT put document date or random date here unless explicitly written as 'Valid until YYYY-MM-DD'.
+           - "our_ref": Reference Number / Quote No. / PO No. generated by the issuing company on the document.
+           - "your_ref": Customer's / Recipient's Reference Number mentioned in the document.
+           - "to_name", "attn_name", "project_title", "flag_class", "pic", "ship_name", "payment_due", "currency".
+
+        3. ITEM TABLE EXTRACTION & GROUPING RULE:
+           - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
+           - Combine sub-items into single row's "Description" using line breaks (\\n).
+
+        Extract details into valid JSON EXACTLY matching this structure:
+        {{
+            "issuer_company": "",
+            "issuer_pic": "",
+            "recipient_company": "",
+            "recipient_attn": "",
+            "to_name": "",
+            "attn_name": "",
+            "project_title": "",
+            "validity": "",
+            "flag_class": "",
+            "our_ref": "",
+            "date_str": "",
+            "pic": "",
+            "your_ref": "",
+            "ship_name": "",
+            "payment_due": "",
+            "currency": "",
+            "items": [
+                {{
+                    "PartNo": "", 
+                    "ItemName": "", 
+                    "Description": "", 
+                    "Qty": "", 
+                    "UnitPrice": "", 
+                    "Amount": "", 
+                    "Remarks": ""
+                }}
+            ]
+        }}
+        Return ONLY raw JSON.
+        """
+        if file_ext in ['png', 'jpg', 'jpeg']:
+            content = Image.open(io.BytesIO(file_bytes))
+        elif file_ext == 'pdf':
+            content = {"mime_type": "application/pdf", "data": file_bytes}
+        elif file_ext in ['xlsx', 'xls']:
+            xl = pd.ExcelFile(io.BytesIO(file_bytes))
+            sheets_txt = []
+            for s in xl.sheet_names:
+                df_s = pd.read_excel(xl, sheet_name=s).dropna(how='all').dropna(how='all', axis=1)
+                if not df_s.empty:
+                    sheets_txt.append(f"--- Sheet: {s} ---\n" + df_s.to_csv(index=False))
+            content = "Excel Table Content:\n" + "\n\n".join(sheets_txt)
+        elif file_ext == 'csv':
+            try:
+                df_c = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1)
+                content = "CSV Table Content:\n" + df_c.to_csv(index=False)
+            except Exception:
+                content = "CSV Raw Content:\n" + file_bytes.decode('utf-8', errors='ignore')
+        else:
+            content = {"mime_type": "application/pdf", "data": file_bytes}
+
+        ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
+        task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data}
+        task_state['status'] = 'completed'
+    except Exception as e:
+        task_state['status'] = 'error'
+        task_state['error_msg'] = str(e)
+
+# [수정됨] 품목 단위 전수 스캔 및 DB 매핑
 def run_bg_db_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -897,38 +984,27 @@ def run_bg_db_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_
         all_results = []
         
         db_prompt = """
-        You are a document DB extraction AI. Extract ALL valid document sections/ledgers from the provided file into a JSON Array.
+        You are a DB extraction AI. Extract ALL valid ITEM records from the provided file into a JSON Array.
 
         CRITICAL SCANNING & PARSING RULES:
         1. DO NOT STOP AT BLANK ROWS:
            - Scan the ENTIRE sheet/document from top to bottom.
            - Do NOT stop parsing when encountering empty rows, line breaks, or section dividers.
 
-        2. MULTI-TABLE / MULTI-SECTION EXTRACTION:
-           - If a single sheet contains multiple tables or separate price lists (e.g., upper VDR/EPIRB table AND lower MCMURDO table), extract records for EVERY table/section separately.
-           - Calculate accurate 'ItemCount' and 'TotalAmount' for each detected section/table.
-
-        3. DATA FORMATTING:
-           - IssueDate / DocDate: Format as YYYY-MM-DD (e.g., 2026-01-02).
-           - OurRef: Use document title or section title (e.g., "(더주원)2026년 VDR/EPIRB 가격 리스트").
-           - TargetName: Company name if identified (e.g., "(주)더주원").
-           - CreatedBy: Sender/contact person name (e.g., "송경재 대리").
-           - TotalAmount: Sum of amounts if applicable, or 0.0.
+        2. ITEM EXTRACTION:
+           - Extract every individual product/item found in the document into the JSON array.
+           - If a single sheet contains multiple tables or separate price lists (e.g., upper VDR/EPIRB table AND lower MCMURDO table), extract records for EVERY table/section continuously.
 
         Expected JSON Array Output:
         [
             {
-                "IssueDate": "YYYY-MM-DD",
-                "DocDate": "YYYY-MM-DD",
-                "DocType": "Quotation",
-                "OurRef": "Section or Doc Title",
-                "YourRef": "",
-                "ShipName": "",
-                "TargetName": "Company Name",
-                "Currency": "KRW",
-                "TotalAmount": 0.0,
-                "ItemCount": 10,
-                "CreatedBy": "Name",
+                "PartNo": "",
+                "ItemName": "",
+                "Description": "",
+                "Qty": "",
+                "UnitPrice": "",
+                "Amount": "",
+                "Remarks": "",
                 "Status": "🟡 Quoted"
             }
         ]
@@ -945,79 +1021,14 @@ def run_bg_db_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_
             for idx, s_name in enumerate(sheets_to_parse):
                 task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 추출 중..."
                 try:
-                    # 빈 행을 미리 삭제하지 않고 전체 데이터를 텍스트로 전달하여 끊김 방지
-                    df_clean = pd.read_excel(excel_file, sheet_name=s_name)
+                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
                     if not df_clean.empty:
-                        res = get_ai_response(api_key, [db_prompt, f"Excel Sheet Name: {s_name}\nFull Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        res = get_ai_response(api_key, [db_prompt, f"Excel Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                         if isinstance(res, list): all_results.extend(res)
                 except Exception: pass
         elif file_ext == 'csv':
             try:
-                df_clean = pd.read_csv(io.BytesIO(file_bytes))
-                if not df_clean.empty:
-                    res = get_ai_response(api_key, [db_prompt, f"CSV Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    if isinstance(res, list): all_results.extend(res)
-            except Exception: pass
-
-        parsed_df = pd.DataFrame(all_results)
-        parsed_df = ensure_cols(parsed_df, db_cols)
-        task_state['result'] = clean_df(parsed_df)
-        task_state['status'] = 'completed'
-    except Exception as e:
-        task_state['status'] = 'error'
-        task_state['error_msg'] = str(e)
-
-def run_bg_db_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
-    try:
-        task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
-        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 DB 수집용 파일({file_name})을 분석 중입니다...'
-        
-        file_ext = file_name.split('.')[-1].lower()
-        all_results = []
-        
-        db_prompt = """
-        Extract ALL document/ledger records from the provided file into a JSON Array of objects matching this exact structure:
-        [
-            {
-                "IssueDate": "",
-                "DocDate": "",
-                "DocType": "",
-                "OurRef": "",
-                "YourRef": "",
-                "ShipName": "",
-                "TargetName": "",
-                "Currency": "KRW",
-                "TotalAmount": 0.0,
-                "ItemCount": 1,
-                "CreatedBy": "",
-                "Status": "🟡 Quoted"
-            }
-        ]
-        CRITICAL RULES:
-        - IssueDate and DocDate formatted as YYYY-MM-DD.
-        - TotalAmount must be a numeric value or float.
-        - Return ONLY a valid JSON Array.
-        """
-
-        if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
-            content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
-            res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
-            if isinstance(res, list): all_results.extend(res)
-        elif file_ext in ['xlsx', 'xls']:
-            excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
-            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
-            for idx, s_name in enumerate(sheets_to_parse):
-                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 추출 중..."
-                try:
-                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all').dropna(how='all', axis=1)
-                    if not df_clean.empty:
-                        res = get_ai_response(api_key, [db_prompt, f"CSV Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        if isinstance(res, list): all_results.extend(res)
-                except Exception: pass
-        elif file_ext == 'csv':
-            try:
-                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1)
+                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [db_prompt, f"CSV Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
@@ -1230,13 +1241,10 @@ if menu == "자사 서류 생성":
         with st.expander(t("ai_expander_title"), expanded=False):
             ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
-            uploaded_doc = st.file_uploader(
-    t("upload_doc_label"), 
-    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
-    accept_multiple_files=False, 
-    disabled=is_running
-)
-```[cite: 1]
+            
+            # [수정됨] 단일 파일 수락 속성 추가
+            uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], accept_multiple_files=False, disabled=is_running)
+            
             if uploaded_doc and st.button(t("btn_ai_parse"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'doc_parse'
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode))
@@ -1431,13 +1439,13 @@ if menu == "자사 서류 생성":
                 if reg_pwd != SAVE_PASSWORD:
                     st.error(t("pwd_err"))
                 else:
-                    current_user_email = st.session_state.get('user_email', 'Unknown')
                     st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
                     st.session_state['doc_items'] = clean_df(edited_df)
                     
-                    save_to_our_db(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), current_user_email)
+                    # [수정됨] 아이템 DB로 바로 저장
+                    save_to_our_db(clean_df(edited_df), doc_type)
                     save_history(ship_name, to_name, attn_name)
-                    st.success(t("reg_success", user=current_user_email))
+                    st.success(t("reg_success"))
 
     # 우측 PDF 미리보기 및 AI 이메일 초안 생성
     with right_col:
@@ -1557,7 +1565,7 @@ elif menu == "자사 서류 DB 관리":
             st.markdown("<hr style='margin: 12px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
 
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
-            valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "OurRef", "YourRef"]
+            valid_cols = ["Status", "PartNo", "ItemName", "Description"]
             col_options = [t("all")] + [c for c in valid_cols if c in our_db_df.columns]
             
             with f_col1:
@@ -1589,18 +1597,15 @@ elif menu == "자사 서류 DB 관리":
 
             selected_cols = st.multiselect("📌 표시 및 편집할 열 선택 (열 삭제/숨김 가능)", options=db_cols, default=db_cols, key="our_db_col_select")
 
+            # [수정됨] 아이템 단위 DB 컬럼 구성
             ledger_config = {
-                "IssueDate": st.column_config.TextColumn("Issue Date"),
-                "DocDate": st.column_config.TextColumn("Doc Date"),
-                "DocType": st.column_config.SelectboxColumn("Doc Type", options=["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]),
-                "OurRef": st.column_config.TextColumn("Our Ref"),
-                "YourRef": st.column_config.TextColumn("Your Ref"),
-                "ShipName": st.column_config.TextColumn("Ship Name"),
-                "TargetName": st.column_config.TextColumn("Target Name"),
-                "Currency": st.column_config.SelectboxColumn("Currency", options=CURRENCY_OPTIONS),
-                "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f"),
-                "ItemCount": st.column_config.NumberColumn("Item Count"),
-                "CreatedBy": st.column_config.TextColumn("Created By"),
+                "PartNo": st.column_config.TextColumn("PartNo"),
+                "ItemName": st.column_config.TextColumn("Item Name"),
+                "Description": st.column_config.TextColumn("Description"),
+                "Qty": st.column_config.TextColumn("Q'ty"),
+                "UnitPrice": st.column_config.TextColumn("Unit Price"),
+                "Amount": st.column_config.TextColumn("Amount"),
+                "Remarks": st.column_config.TextColumn("Remarks"),
                 "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=STATUS_OPTIONS, required=True),
             }
             active_config = {k: v for k, v in ledger_config.items() if k in selected_cols}
@@ -1628,14 +1633,9 @@ elif menu == "자사 서류 DB 관리":
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="our_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(
-    t("upload_db_label"), 
-    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
-    accept_multiple_files=False, 
-    disabled=is_running, 
-    key="our_db_uploader"
-)
-```[cite: 1]
+        
+        # [수정됨] 단일 파일 수락 속성 추가
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], accept_multiple_files=False, disabled=is_running, key="our_db_uploader")
         
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
@@ -1705,7 +1705,7 @@ elif menu == "고객사 서류 DB 관리":
 
         if not customer_db_df.empty:
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
-            valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "OurRef", "YourRef"]
+            valid_cols = ["Status", "PartNo", "ItemName", "Description"]
             col_options = [t("all")] + [c for c in valid_cols if c in customer_db_df.columns]
             
             with f_col1:
@@ -1737,7 +1737,20 @@ elif menu == "고객사 서류 DB 관리":
 
             selected_cols = st.multiselect("📌 표시 및 편집할 열 선택 (열 삭제/숨김 가능)", options=db_cols, default=db_cols, key="cust_db_col_select")
 
-            edited_df = st.data_editor(filtered_df[selected_cols], num_rows="dynamic", use_container_width=True, key="customer_db_editor")
+            # [수정됨] 아이템 단위 DB 컬럼 구성
+            ledger_config = {
+                "PartNo": st.column_config.TextColumn("PartNo"),
+                "ItemName": st.column_config.TextColumn("Item Name"),
+                "Description": st.column_config.TextColumn("Description"),
+                "Qty": st.column_config.TextColumn("Q'ty"),
+                "UnitPrice": st.column_config.TextColumn("Unit Price"),
+                "Amount": st.column_config.TextColumn("Amount"),
+                "Remarks": st.column_config.TextColumn("Remarks"),
+                "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=STATUS_OPTIONS, required=True),
+            }
+            active_config = {k: v for k, v in ledger_config.items() if k in selected_cols}
+
+            edited_df = st.data_editor(filtered_df[selected_cols], column_config=active_config, num_rows="dynamic", use_container_width=True, key="customer_db_editor")
 
             if st.button("💾 고객사 서류 DB 변경사항 저장", key="btn_save_customer_db"):
                 db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="cust_db_pwd_save_field")
@@ -1764,14 +1777,9 @@ elif menu == "고객사 서류 DB 관리":
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="cust_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(
-    t("upload_db_label"), 
-    type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], 
-    accept_multiple_files=False, 
-    disabled=is_running, 
-    key="cust_db_uploader"
-)
-```[cite: 1]
+        
+        # [수정됨] 단일 파일 수락 속성 추가
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], accept_multiple_files=False, disabled=is_running, key="cust_db_uploader")
         
         if uploaded_db_file:
             up_ext = uploaded_db_file.name.split('.')[-1].lower()
