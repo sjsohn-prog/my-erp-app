@@ -47,6 +47,19 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
+# 안전한 숫자 변환 헬퍼 함수 (콤마, 단위, 문자 포함 시 숫자만 안전 추출)
+def safe_float(val, default=0.0):
+    if val is None or pd.isna(val):
+        return default
+    s = str(val).replace(',', '').strip()
+    match = re.search(r"[-+]?\d*\.\d+|\d+", s)
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return default
+    return default
+
 # ==========================================
 # 0-1. i18n 다국어 사전 (KR / EN)
 # ==========================================
@@ -474,24 +487,14 @@ def prepare_items_for_pdf(items_list):
         if qty_str in ['', 'nan', 'NaN', 'None', 'null', '<NA>', 'none']:
             item_copy['Qty'] = ''
         else:
-            try:
-                q_val = float(qty_str.replace(',', ''))
-                if q_val == int(q_val):
-                    item_copy['Qty'] = f"{int(q_val)}"
-                else:
-                    item_copy['Qty'] = f"{q_val}"
-            except (ValueError, TypeError):
+            q_val = safe_float(qty_str, default=None)
+            if q_val is not None:
+                item_copy['Qty'] = f"{int(q_val)}" if q_val == int(q_val) else f"{q_val}"
+            else:
                 item_copy['Qty'] = qty_str
 
-        u_p = item_copy.get('UnitPrice', 0)
-        try:
-            u_p_val = float(str(u_p).replace(',', '').strip()) if str(u_p).strip() else 0.0
-        except (ValueError, TypeError): u_p_val = 0.0
-            
-        amt = item_copy.get('Amount', 0)
-        try:
-            amt_val = float(str(amt).replace(',', '').strip()) if str(amt).strip() else 0.0
-        except (ValueError, TypeError): amt_val = 0.0
+        u_p_val = safe_float(item_copy.get('UnitPrice', 0))
+        amt_val = safe_float(item_copy.get('Amount', 0))
             
         item_copy['UnitPriceFormatted'] = f"{u_p_val:,.0f}" if u_p_val > 0 else ""
         if amt_val > 0:
@@ -531,7 +534,6 @@ if os.path.exists(DB_FILE):
 else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
 
-# ⭐ 관리대장 초기화 및 컬럼 구성 (IssueDate, DocDate, CreatedBy 세분화)
 if not os.path.exists(LEDGER_FILE):
     pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
 
@@ -551,20 +553,18 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ⭐ 관리대장 저장 함수: 이슈 일자(오늘)와 문서 표기 일자(doc_date_str) 및 접속자 이메일을 명확히 분리 저장
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     
-    # 기존 컬럼명 하위 호환 마이그레이션 (Date -> DocDate / IssueDate 생성)
     if not ledger_df.empty:
         if "Date" in ledger_df.columns and "DocDate" not in ledger_df.columns:
             ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
         if "IssueDate" not in ledger_df.columns:
             ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", datetime.now().strftime("%Y-%m-%d")))
 
-    issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M") # 실제 시스템 저장/발행 일시
-    doc_date_str = doc_date_str or "-"                           # 서류 상 작성 날짜
-    logged_user = user_email or st.session_state.get('user_email', 'Unknown') # 접속자 계정 이메일
+    issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    doc_date_str = doc_date_str or "-"
+    logged_user = user_email or st.session_state.get('user_email', 'Unknown')
 
     new_entry = pd.DataFrame([{
         "IssueDate": issue_date_str,
@@ -830,7 +830,6 @@ if menu == "서류 통합 생성":
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         
-        # 수신자/발행자 입체 교대 검증
         recip_comp = clean_str(ai_data.get("recipient_company", "")) or clean_str(ai_data.get("to_name", ""))
         recip_attn = clean_str(ai_data.get("recipient_attn", "")) or clean_str(ai_data.get("attn_name", ""))
         issuer_comp = clean_str(ai_data.get("issuer_company", ""))
@@ -876,7 +875,6 @@ if menu == "서류 통합 생성":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        # 위젯 세션 키에 직접 AI 분석 결과 반영
         st.session_state['to_sel'] = to_field_val
         st.session_state['attn_sel'] = attn_field_val
         st.session_state['project_title_sel'] = project_val
@@ -926,15 +924,15 @@ if menu == "서류 통합 생성":
                     if match.empty and desc and 'Description' in db.columns: match = db[db['Description'] == desc]
                 if not match.empty:
                     m = match.iloc[0]
-                    if float(row.get('UnitPrice', 0.0)) == 0.0: items_df.at[idx, 'UnitPrice'] = float(m.get('UnitPrice', 0.0))
+                    if safe_float(row.get('UnitPrice', 0.0)) == 0.0: items_df.at[idx, 'UnitPrice'] = safe_float(m.get('UnitPrice', 0.0))
                     if not pno: items_df.at[idx, 'PartNo'] = clean_str(m.get('PartNo', ''))
                     if not iname: items_df.at[idx, 'ItemName'] = clean_str(m.get('ItemName', ''))
                     if not desc: items_df.at[idx, 'Description'] = clean_str(m.get('Description', ''))
                 
                 q_raw = clean_str(row.get('Qty', ''))
-                qty_val = float(q_raw) if q_raw else 0.0
-                unit_p_val = float(row.get('UnitPrice', 0.0)) if row.get('UnitPrice') else 0.0
-                if float(row.get('Amount', 0.0)) == 0.0:
+                qty_val = safe_float(q_raw, default=0.0)
+                unit_p_val = safe_float(row.get('UnitPrice', 0.0))
+                if safe_float(row.get('Amount', 0.0)) == 0.0:
                     items_df.at[idx, 'Amount'] = qty_val * unit_p_val
             st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
@@ -952,7 +950,6 @@ if menu == "서류 통합 생성":
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
                 st.rerun()
 
-        # 초기화 버튼
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
@@ -965,7 +962,6 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
-        # 헤더 파란색 카드 컨테이너
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
@@ -1025,15 +1021,12 @@ if menu == "서류 통합 생성":
                     df_current[c] = "" if c not in ["UnitPrice", "Amount"] else 0.0
             df_current = clean_df(df_current[cols_order])
 
-            # 금액 자동 연산
             for i, row in df_current.iterrows():
-                try:
-                    q_raw = clean_str(row.get('Qty', ''))
-                    qty = float(q_raw) if q_raw else 0.0
-                    u_price = float(str(row.get('UnitPrice', 0)).replace(',', ''))
-                    if float(str(row.get('Amount', 0)).replace(',', '')) == 0.0 and u_price > 0:
-                        df_current.at[i, 'Amount'] = qty * u_price
-                except (ValueError, TypeError): pass
+                qty = safe_float(row.get('Qty', ''))
+                u_price = safe_float(row.get('UnitPrice', 0))
+                amt_curr = safe_float(row.get('Amount', 0))
+                if amt_curr == 0.0 and u_price > 0:
+                    df_current.at[i, 'Amount'] = qty * u_price
 
             edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
@@ -1052,23 +1045,19 @@ if menu == "서류 통합 생성":
                     if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
                     if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
                     
-                    try:
-                        u_p_curr = float(str(row.get('UnitPrice', 0)).replace(',', ''))
-                    except ValueError: u_p_curr = 0.0
-                    
+                    u_p_curr = safe_float(row.get('UnitPrice', 0))
                     if u_p_curr == 0.0:
                         u_p = float(match_row.get('UnitPrice', 0.0))
                         edited_df.at[i, 'UnitPrice'] = u_p
 
             if "Amount" in edited_df.columns:
-                total_val = pd.to_numeric(edited_df["Amount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).sum()
+                total_val = edited_df["Amount"].apply(safe_float).sum()
                 st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
             else: total_val = 0.0
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
             
-            # ⭐ 저장 및 관리대장 등록 (CreatedBy: 로그인 계정 이메일 강제 연동)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1080,10 +1069,9 @@ if menu == "서류 통합 생성":
                     st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
                     st.session_state['doc_items'] = clean_df(edited_df)
                     db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
-                    db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+                    db_items['UnitPrice'] = db_items['UnitPrice'].apply(safe_float)
                     safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
                     
-                    # save_to_ledger 호출 시 date_str(서류날짜)와 current_user_email(접속자 이메일) 전달
                     save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user_email)
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user_email))
@@ -1123,7 +1111,6 @@ elif menu == "서류 관리대장":
         if not ledger_df.empty:
             ledger_df = clean_df(ledger_df)
             
-            # 기존 Date -> DocDate 및 IssueDate 호환 보정
             if "Date" in ledger_df.columns and "DocDate" not in ledger_df.columns:
                 ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
             if "IssueDate" not in ledger_df.columns:
