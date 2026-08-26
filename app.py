@@ -933,6 +933,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         with open(save_path, "wb") as f:
             f.write(file_bytes)
 
+        # JSON 이스케이프 완벽 정제 (중괄호 {{ }} 적용으로 파이썬 f-string 포맷팅 오류 완전 해결)
         prompt = f"""
         Extract document details into JSON format matching the fixed header fields and item list.
         
@@ -958,7 +959,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
             "issuer_company": "", "issuer_pic": "", "recipient_company": "", "recipient_attn": "",
             "to_name": "", "attn_name": "", "project_title": "", "validity": "", "flag_class": "",
             "our_ref": "", "date_str": "", "pic": "", "your_ref": "", "ship_name": "", "payment_due": "", "currency": "",
-            "items": [{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}]
+            "items": [{{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}}]
         }}
         """
         if file_ext in ['png', 'jpg', 'jpeg']:
@@ -996,6 +997,11 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
+        # 서류 이력에 자동으로 남도록 input_docs 디렉토리 저장을 추가
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        with open(save_path, "wb") as f:
+            f.write(file_bytes)
+
         all_results = []
         
         db_prompt = """
@@ -1059,6 +1065,11 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
+        # 서류 이력에 자동으로 남도록 input_docs 디렉토리 저장을 추가
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        with open(save_path, "wb") as f:
+            f.write(file_bytes)
+
         all_results = []
         
         item_prompt = """
@@ -1207,11 +1218,11 @@ if menu == "서류 분석 / 생성 Master":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    # 모든 요소를 문자열(str)로 확실하게 캐스팅하여 정렬 오류 방지
     our_ledger = safe_read_csv(OUR_DB_FILE, doc_db_cols)
     cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
     history = load_history()
 
+    # 정렬 에러 방지를 위해 명시적으로 str() 캐스팅 및 결측치 필터링
     db_to_options = sorted(list(set([str(x).strip() for x in (our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history.get("to_list", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
     db_ship_options = sorted(list(set([str(x).strip() for x in (our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history.get("ships", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
     db_attn_options = sorted(list(set([str(x).strip() for x in history.get("attns", []) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
