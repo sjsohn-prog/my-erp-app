@@ -36,6 +36,10 @@ CURRENCY_OPTIONS = [
     "KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"
 ]
 
+STATUS_OPTIONS = [
+    "Quoted", "PO Received", "Invoiced", "Paid", "Cancelled", "Draft"
+]
+
 def get_secret(key, default=""):
     try:
         if key in st.secrets: return st.secrets[key]
@@ -47,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 안전한 숫자 변환 헬퍼 함수 (콤마, 단위, 문자 포함 시 숫자만 안전 추출)
+# 안전한 숫자 변환 헬퍼 함수
 def safe_float(val, default=0.0):
     if val is None or pd.isna(val):
         return default
@@ -59,6 +63,20 @@ def safe_float(val, default=0.0):
         except ValueError:
             return default
     return default
+
+# ⭐ [기능 4] 실시간 환율 정보 조회 함수 (USD 기준 API)
+@st.cache_data(ttl=3600)
+def get_exchange_rates():
+    try:
+        url = "https://open.er-api.com/v6/latest/USD"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            rates = data.get("rates", {})
+            return rates
+    except Exception:
+        # Network error fallback standard rates
+        return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23}
 
 # ==========================================
 # 0-1. i18n 다국어 사전 (KR / EN)
@@ -85,14 +103,14 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
-        "items_title": "📦 품목 상세 내역 (행 합치기/나누기 지원)",
+        "items_title": "📦 품목 상세 내역 (줄바꿈/엔터 지원 / 열 너비 자동 맞춤)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 관리대장 및 DB 등록",
         "pwd_save_label": "🔒 비밀번호",
         "btn_register": "📥 관리대장 및 마스터 DB 등록",
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
-        "ledger_title": "📊 서류 발행 관리대장 및 실시간 검색",
+        "ledger_title": "📊 서류 발행 관리대장 및 파이프라인 관리",
         "filter_category": "1️⃣ 필터 항목 선택",
         "filter_value": "2️⃣ 하위 값 선택",
         "filter_keyword": "🔎 키워드 통합 검색",
@@ -140,14 +158,14 @@ TRANSLATIONS = {
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
-        "items_title": "📦 Line Item Details (Merge/Split supported)",
+        "items_title": "📦 Line Item Details (Multi-line supported / Auto-fit)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 Save to Ledger & Master DB",
         "pwd_save_label": "🔒 Password",
         "btn_register": "📥 Save to Ledger & Master DB",
         "preview_title": "⚡ Live PDF Document Preview",
         "btn_download_pdf": "💾 Download PDF Document",
-        "ledger_title": "📊 Document Ledger & Real-time Search",
+        "ledger_title": "📊 Document Ledger & Pipeline Management",
         "filter_category": "1️⃣ Select Filter Column",
         "filter_value": "2️⃣ Select Sub-value",
         "filter_keyword": "🔎 Search Keyword",
@@ -288,10 +306,12 @@ custom_css = """
     .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
     .stButton > button:disabled { background: #64748B !important; color: #F1F5F9 !important; cursor: not-allowed !important; }
     .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 12px 16px; border-radius: 10px; text-align: right; font-size: 1.15rem; font-weight: 800; color: #0284C7; margin-top: 10px; }
+    .total-subbadge { background: rgba(2, 132, 199, 0.1); border: 1px dashed #0284C7; padding: 8px 12px; border-radius: 8px; text-align: right; font-size: 0.95rem; font-weight: 700; color: #38BDF8; margin-top: 6px; }
     .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
     .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
+    .rate-card { background: rgba(15, 23, 42, 0.6); border: 1px solid #1E293B; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.8rem; color: #94A3B8; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -530,8 +550,9 @@ if os.path.exists(DB_FILE):
 else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
 
+# ⭐ [기능 3] 관리대장 초기화 및 Status 컬럼 포함 체계
 if not os.path.exists(LEDGER_FILE):
-    pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
+    pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -549,6 +570,7 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ⭐ [기능 3] 관리대장 저장 함수: DocType 기반 초기 Status 자동 할당
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     
@@ -557,15 +579,24 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
             ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
         if "IssueDate" not in ledger_df.columns:
             ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", datetime.now().strftime("%Y-%m-%d")))
+        if "Status" not in ledger_df.columns:
+            ledger_df.insert(3, "Status", "Quoted")
 
     issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     doc_date_str = doc_date_str or "-"
     logged_user = user_email or st.session_state.get('user_email', 'Unknown')
 
+    # 서류 유형별 초기 파이프라인 Status 설정
+    if doc_type == "Quotation": default_status = "Quoted"
+    elif doc_type == "Purchase Order": default_status = "PO Received"
+    elif doc_type == "Invoice": default_status = "Invoiced"
+    else: default_status = "Quoted"
+
     new_entry = pd.DataFrame([{
         "IssueDate": issue_date_str,
         "DocDate": doc_date_str,
         "DocType": doc_type,
+        "Status": default_status,
         "YourRef": your_ref or "-",
         "OurRef": our_ref or "-",
         "ShipName": ship_name or "-",
@@ -577,7 +608,7 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
     }])
 
     updated_df = pd.concat([ledger_df, new_entry], ignore_index=True)
-    cols_order = ["IssueDate", "DocDate", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]
+    cols_order = ["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]
     for c in cols_order:
         if c not in updated_df.columns: updated_df[c] = "-"
     
@@ -712,7 +743,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
 
         3. ITEM TABLE EXTRACTION & GROUPING RULE:
            - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
-           - CRITICAL GROUPING RULE: When sub-items, breakdown fees, or charges (e.g., Other Charges: 1) Waiting hour, 2) Admin Fee, etc.) belong to a main category or item, DO NOT split them into separate rows. Combine them into a single row's "Description" or "ItemName" using line breaks (\\n).
+           - CRITICAL GROUPING RULE: When sub-items, breakdown fees, or charges belong to a main category or item, DO NOT split them into separate rows. Combine them into a single row's "Description" or "ItemName" using line breaks (\\n).
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
@@ -785,7 +816,7 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 5. UI 및 사이드바 (다국어 반영)
+# 5. UI 및 사이드바 (다국어 & 실시간 환율 연동)
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -795,7 +826,24 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 20px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
+st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 12px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
+
+# ⭐ [기능 4] 사이드바 실시간 환율 정보 연동 표시
+live_rates = get_exchange_rates()
+usd_krw = live_rates.get("KRW", 1350.0)
+eur_usd = live_rates.get("EUR", 0.92)
+eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
+sgd_usd = live_rates.get("SGD", 1.35)
+sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
+
+st.sidebar.markdown(f"""
+<div class="rate-card">
+    <strong style="color:#0284C7;">💱 실시간 매매기준율 (Live Rates)</strong><br>
+    • <b>USD/KRW:</b> {usd_krw:,.2f} 원<br>
+    • <b>EUR/KRW:</b> {eur_krw:,.2f} 원<br>
+    • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원
+</div>
+""", unsafe_allow_html=True)
 
 menu_options = [t("menu_gen"), t("menu_ledger"), t("menu_db"), t("menu_history")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
@@ -1006,7 +1054,7 @@ if menu == "서류 통합 생성":
                     df_current[c] = "" if c not in ["UnitPrice", "Amount"] else 0.0
             df_current = clean_df(df_current[cols_order])
 
-            # ⭐ [신규] 수동 행 합치기 / 나누기 도구
+            # 수동 행 합치기 / 나누기 도구
             with st.expander("🛠️ 행 합치기 / 나누기 도구 (Merge & Split Rows)", expanded=False):
                 m_col1, m_col2 = st.columns(2)
                 row_indices = list(range(1, len(df_current) + 1))
@@ -1130,7 +1178,21 @@ if menu == "서류 통합 생성":
 
             if "Amount" in edited_df.columns:
                 total_val = edited_df["Amount"].apply(safe_float).sum()
-                st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
+                curr_symbol = currency if currency else "KRW"
+                st.markdown(f'<div class="total-badge">Total Amount: {curr_symbol} {total_val:,.2f}</div>', unsafe_allow_html=True)
+                
+                # ⭐ [기능 4] 이중 통화 실시간 환산 표기 (USD <-> KRW 등)
+                if curr_symbol == "KRW":
+                    converted_val = total_val / usd_krw if usd_krw else 0
+                    st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
+                else:
+                    if curr_symbol == "USD": src_rate = 1.0
+                    elif curr_symbol == "EUR": src_rate = live_rates.get("EUR", 0.92)
+                    elif curr_symbol == "SGD": src_rate = live_rates.get("SGD", 1.35)
+                    else: src_rate = 1.0
+                    
+                    converted_val_krw = (total_val / src_rate) * usd_krw
+                    st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
             else: total_val = 0.0
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
@@ -1154,7 +1216,7 @@ if menu == "서류 통합 생성":
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user_email))
 
-    # 우측 PDF 미리보기
+    # 우측 PDF 미리보기 및 AI 이메일 초안 생성
     with right_col:
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
@@ -1178,8 +1240,49 @@ if menu == "서류 통합 생성":
             else:
                 st.info("Generating PDF preview...")
 
+            # ⭐ [기능 2] AI 영업 이메일 초안 자동 생성 및 Mailto 원클릭 전송
+            with st.expander("📧 AI 영업 이메일 초안 작성 (Email Generator)", expanded=False):
+                email_lang = st.radio("메일 언어 선택", ["English", "Korean"], horizontal=True, key="email_lang_choice")
+                
+                if st.button("✨ 영업 이메일 본문 생성", key="btn_gen_email"):
+                    with st.spinner("AI가 비즈니스 메일 초안을 작성 중입니다..."):
+                        email_prompt = f"""
+                        Write a professional sales email for sending document [{doc_type}].
+                        Language: {email_lang}
+                        
+                        Recipient Details:
+                        - To Company: {to_name}
+                        - Attention Person: {attn_name}
+                        - Vessel Name: {ship_name}
+                        - Our Ref No: {our_ref}
+                        - Your Ref No: {your_ref}
+                        - Total Amount: {currency or 'KRW'} {total_val:,.2f}
+                        
+                        Tone: Polite, professional, customer-oriented maritime sales style.
+                        Keep it concise and clear. Include greeting, document attachment summary, total amount, and professional sign-off.
+                        Do NOT include placeholder variables like [Your Name] if PIC is known ({pic_name}).
+                        """
+                        try:
+                            genai.configure(api_key=gemini_key)
+                            model = genai.GenerativeModel("gemini-3.6-flash")
+                            res = model.generate_content(email_prompt)
+                            st.session_state['generated_email_body'] = res.text.strip()
+                        except Exception as e:
+                            st.error(f"Email Generation Error: {e}")
+                
+                if 'generated_email_body' in st.session_state:
+                    email_body_text = st.text_area("메일 본문 (수정 가능)", value=st.session_state['generated_email_body'], height=200)
+                    
+                    # Mailto 원클릭 링크 생성
+                    subject_str = f"[{doc_type}] {our_ref or your_ref or ship_name} - 1SOLUTION"
+                    encoded_subject = urllib.parse.quote(subject_str)
+                    encoded_body = urllib.parse.quote(email_body_text)
+                    mailto_url = f"mailto:?subject={encoded_subject}&body={encoded_body}"
+                    
+                    st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
+
 # ==========================================
-# 7. 서류 관리대장
+# 7. 서류 관리대장 (영업 파이프라인 관리)
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
@@ -1193,12 +1296,14 @@ elif menu == "서류 관리대장":
                 ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
             if "IssueDate" not in ledger_df.columns:
                 ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", "-"))
+            if "Status" not in ledger_df.columns:
+                ledger_df.insert(3, "Status", "Quoted")
             if "CreatedBy" not in ledger_df.columns:
                 ledger_df["CreatedBy"] = "-"
 
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
             
-            valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "YourRef", "OurRef"]
+            valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "YourRef", "OurRef"]
             col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
             
             with f_col1:
@@ -1227,9 +1332,32 @@ elif menu == "서류 관리대장":
                 filtered_df = filtered_df[match_mask]
 
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
-            st.dataframe(filtered_df, use_container_width=True)
 
-            st.download_button(t("btn_download_csv"), filtered_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
+            # ⭐ [기능 3] 영업 파이프라인 Status 상태 실시간 수정 및 데이터에디터 연동
+            ledger_config = {
+                "Status": st.column_config.SelectboxColumn("Status (파이프라인)", options=STATUS_OPTIONS, required=True),
+                "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
+                "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
+                "DocType": st.column_config.TextColumn("Doc Type", disabled=True),
+                "YourRef": st.column_config.TextColumn("Your Ref", disabled=True),
+                "OurRef": st.column_config.TextColumn("Our Ref", disabled=True),
+                "ShipName": st.column_config.TextColumn("Ship Name", disabled=True),
+                "TargetName": st.column_config.TextColumn("Target Name", disabled=True),
+                "Currency": st.column_config.TextColumn("Currency", disabled=True),
+                "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f", disabled=True),
+                "ItemCount": st.column_config.NumberColumn("Item Count", disabled=True),
+                "CreatedBy": st.column_config.TextColumn("Created By", disabled=True),
+            }
+
+            edited_ledger_df = st.data_editor(filtered_df, column_config=ledger_config, use_container_width=True, key="ledger_editor")
+
+            if st.button("💾 상태(Status) 변경사항 저장"):
+                ledger_df.update(edited_ledger_df)
+                ledger_df.to_csv(LEDGER_FILE, index=False)
+                st.success("🎉 관리대장 상태(Status)가 성공적으로 업데이트되었습니다.")
+                st.rerun()
+
+            st.download_button(t("btn_download_csv"), edited_ledger_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
         else:
             st.info(t("no_ledger"))
 
