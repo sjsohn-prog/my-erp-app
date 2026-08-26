@@ -469,7 +469,6 @@ def prepare_items_for_pdf(items_list):
         item_copy['Description'] = desc
         item_copy['Remarks'] = rem
         
-        # ⭐ Qty 정제: 미입력/디폴트 상태일 때는 빈칸, 입력값이 있을 때는 0을 포함하여 정수 표기
         qty_raw = item_copy.get('Qty', '')
         qty_str = str(qty_raw).strip() if qty_raw is not None else ''
         if qty_str in ['', 'nan', 'NaN', 'None', 'null', '<NA>', 'none']:
@@ -532,8 +531,9 @@ if os.path.exists(DB_FILE):
 else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
 
+# ⭐ 관리대장 초기화 및 컬럼 구성 (IssueDate, DocDate, CreatedBy 세분화)
 if not os.path.exists(LEDGER_FILE):
-    pd.DataFrame(columns=["Date", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
+    pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -551,14 +551,41 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, date_str, currency, total_amount, item_count, user_email=""):
+# ⭐ 관리대장 저장 함수: 이슈 일자(오늘)와 문서 표기 일자(doc_date_str) 및 접속자 이메일을 명확히 분리 저장
+def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
+    
+    # 기존 컬럼명 하위 호환 마이그레이션 (Date -> DocDate / IssueDate 생성)
+    if not ledger_df.empty:
+        if "Date" in ledger_df.columns and "DocDate" not in ledger_df.columns:
+            ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
+        if "IssueDate" not in ledger_df.columns:
+            ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", datetime.now().strftime("%Y-%m-%d")))
+
+    issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M") # 실제 시스템 저장/발행 일시
+    doc_date_str = doc_date_str or "-"                           # 서류 상 작성 날짜
+    logged_user = user_email or st.session_state.get('user_email', 'Unknown') # 접속자 계정 이메일
+
     new_entry = pd.DataFrame([{
-        "Date": date_str or "-", "DocType": doc_type, "YourRef": your_ref or "-", "OurRef": our_ref or "-",
-        "ShipName": ship_name or "-", "TargetName": target_name or "-", "Currency": currency or "-", 
-        "TotalAmount": total_amount, "ItemCount": item_count, "CreatedBy": user_email or "Unknown"
+        "IssueDate": issue_date_str,
+        "DocDate": doc_date_str,
+        "DocType": doc_type,
+        "YourRef": your_ref or "-",
+        "OurRef": our_ref or "-",
+        "ShipName": ship_name or "-",
+        "TargetName": target_name or "-",
+        "Currency": currency or "-", 
+        "TotalAmount": total_amount,
+        "ItemCount": item_count,
+        "CreatedBy": logged_user
     }])
-    pd.concat([ledger_df, new_entry], ignore_index=True).to_csv(LEDGER_FILE, index=False)
+
+    updated_df = pd.concat([ledger_df, new_entry], ignore_index=True)
+    cols_order = ["IssueDate", "DocDate", "DocType", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]
+    for c in cols_order:
+        if c not in updated_df.columns: updated_df[c] = "-"
+    
+    updated_df[cols_order].to_csv(LEDGER_FILE, index=False)
 
 def safe_merge_db(existing_db, new_data_df):
     if new_data_df is None or new_data_df.empty: return existing_db
@@ -574,7 +601,6 @@ def safe_merge_db(existing_db, new_data_df):
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
-# ⭐ 초기 기본 수량(Qty)은 0 대신 빈칸("")으로 세팅
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
@@ -608,10 +634,9 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
-# ⭐ 기본 0번째 옵션은 항상 빈칸("")으로 노출되며 '직접 입력'을 지원하는 통합 드롭다운 헬퍼 함수
 def render_unified_input(label, current_val, base_options, key_prefix):
     curr = clean_str(current_val)
-    options = [""]  # 항상 Index 0은 빈칸("")으로 노출
+    options = [""]
     
     if curr and curr not in options and "Direct Input" not in curr and "직접 입력" not in curr:
         options.append(curr)
@@ -887,7 +912,6 @@ if menu == "서류 통합 생성":
                 iname = clean_str(row.get('ItemName', ''))
                 desc = clean_str(row.get('Description', ''))
                 
-                # 자재명이 한쪽 필드에만 있는 경우 양쪽 상호 보완
                 if not iname and desc: iname = desc
                 if not desc and iname: desc = iname
                 
@@ -945,7 +969,6 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
-            # 모든 헤더 입력 항목 (드롭다운 + 직접 입력 지원)
             to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
             attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
             project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
@@ -984,7 +1007,6 @@ if menu == "서류 통합 생성":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            # ⭐ 열 너비(width) 고정 프리셋을 제거하여 content 및 header 길이에 맞춰 핏(Fit)하게 자동 조절
             column_config = {
                 "PartNo": st.column_config.TextColumn("PartNo", help="직접 클릭하여 입력/수정"),
                 "ItemName": st.column_config.TextColumn("Item Name", help="직접 클릭하여 입력/수정"),
@@ -1015,7 +1037,6 @@ if menu == "서류 통합 생성":
 
             edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
-            # 데이터 변경 시 DB 매칭 및 금액 자동 계산 업데이트
             for i, row in edited_df.iterrows():
                 pno = clean_str(row.get('PartNo'))
                 iname = clean_str(row.get('ItemName'))
@@ -1047,7 +1068,7 @@ if menu == "서류 통합 생성":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
             
-            # 저장 및 관리대장 등록
+            # ⭐ 저장 및 관리대장 등록 (CreatedBy: 로그인 계정 이메일 강제 연동)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1055,16 +1076,17 @@ if menu == "서류 통합 생성":
                 if reg_pwd != SAVE_PASSWORD:
                     st.error(t("pwd_err"))
                 else:
-                    current_user = st.session_state.get('user_email', 'Unknown')
+                    current_user_email = st.session_state.get('user_email', 'Unknown')
                     st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
                     st.session_state['doc_items'] = clean_df(edited_df)
                     db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
                     db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
                     safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
                     
-                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
+                    # save_to_ledger 호출 시 date_str(서류날짜)와 current_user_email(접속자 이메일) 전달
+                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user_email)
                     save_history(ship_name, to_name, attn_name)
-                    st.success(t("reg_success", user=current_user))
+                    st.success(t("reg_success", user=current_user_email))
 
     # 우측 PDF 미리보기
     with right_col:
@@ -1100,12 +1122,18 @@ elif menu == "서류 관리대장":
 
         if not ledger_df.empty:
             ledger_df = clean_df(ledger_df)
+            
+            # 기존 Date -> DocDate 및 IssueDate 호환 보정
+            if "Date" in ledger_df.columns and "DocDate" not in ledger_df.columns:
+                ledger_df = ledger_df.rename(columns={"Date": "DocDate"})
+            if "IssueDate" not in ledger_df.columns:
+                ledger_df.insert(0, "IssueDate", ledger_df.get("DocDate", "-"))
             if "CreatedBy" not in ledger_df.columns:
                 ledger_df["CreatedBy"] = "-"
 
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
             
-            valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "Date", "YourRef", "OurRef"]
+            valid_cols = ["DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "YourRef", "OurRef"]
             col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
             
             with f_col1:
