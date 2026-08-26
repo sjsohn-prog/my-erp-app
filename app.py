@@ -57,7 +57,7 @@ doc_db_cols = [
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
 
-# 자재 단가 마스터 컬럼 (품목/단가 중심)
+# 자재 단가 마스터 컬럼 (Status 제거됨)
 item_master_cols = [
     "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
@@ -178,12 +178,12 @@ TRANSLATIONS = {
         "logout": "🚪 로그아웃",
         "user_label": "👤 접속자:",
         "sys_menu": "SYSTEM MENU",
-        "menu_gen": "자사 서류 생성",
+        "menu_gen": "서류 분석 / 생성 Master",
         "menu_doc_ledger": "서류 관리 대장 (자사 / 고객사)",
         "menu_item_master": "자재 단가 마스터 DB",
         "menu_history": "서류 이력",
         "menu_admin": "🛠️ 관리자 메뉴",
-        "doc_gen_title": "📄 자사 서류 스마트 자동 생성 시스템",
+        "doc_gen_title": "📄 서류 분석 및 자동 생성 Master System",
         "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
         "ai_mode_label": "AI 분석 엔진 선택",
@@ -231,12 +231,12 @@ TRANSLATIONS = {
         "logout": "🚪 Logout",
         "user_label": "👤 User:",
         "sys_menu": "SYSTEM MENU",
-        "menu_gen": "In-house Doc Generator",
+        "menu_gen": "Doc Analysis / Gen Master",
         "menu_doc_ledger": "Document Ledger (Our / Customer)",
         "menu_item_master": "Item Price Master DB",
         "menu_history": "Document History",
         "menu_admin": "🛠️ Admin Menu",
-        "doc_gen_title": "📄 Smart Document Generation System",
+        "doc_gen_title": "📄 Document Analysis & Generation Master System",
         "doc_gen_desc": "Supports fixed template & DB linked generation. All fields are 100% human-editable.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
         "ai_mode_label": "Select AI Engine",
@@ -1177,7 +1177,7 @@ st.sidebar.markdown(f"""
 menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
-if menu_selection == t("menu_gen"): menu = "자사 서류 생성"
+if menu_selection == t("menu_gen"): menu = "서류 분석 / 생성 Master"
 elif menu_selection == t("menu_doc_ledger"): menu = "서류 관리 대장"
 elif menu_selection == t("menu_item_master"): menu = "자재 단가 마스터 DB"
 elif menu_selection == t("menu_admin"): menu = "관리자 메뉴"
@@ -1193,13 +1193,13 @@ elif st.session_state['current_menu'] != menu:
 task = st.session_state['bg_task']
 if is_running:
     st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
-elif task['status'] == 'error' and menu == "자사 서류 생성":
+elif task['status'] == 'error' and menu == "서류 분석 / 생성 Master":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 자사 서류 생성
+# 6. 서류 분석 / 생성 Master
 # ==========================================
-if menu == "자사 서류 생성":
+if menu == "서류 분석 / 생성 Master":
     doc_type = st.sidebar.selectbox(
         "📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), 
         ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]
@@ -1397,7 +1397,7 @@ if menu == "자사 서류 생성":
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
 
-            # DB 저장 및 등록 섹션 (이원화 버튼 제공)
+            # DB 저장 및 등록 섹션 (균등 비율 1:1:1 이원화 버튼)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1458,8 +1458,24 @@ elif menu == "서류 관리 대장":
     tab_our, tab_cust = st.tabs(["🏢 자사 서류 대장", "🤝 고객사 / 공급사 서류 대장"])
 
     def render_ledger_tab(db_filepath, tab_key_prefix):
-        db_df = clean_df(ensure_cols(safe_read_csv(db_filepath, doc_db_cols), doc_db_cols))
+        db_df = safe_read_csv(db_filepath, doc_db_cols)
+        db_df = ensure_cols(db_df, doc_db_cols)
+        db_df = clean_df(db_df)
         
+        # StreamlitAPIException 형변환 치유: 숫자형 컬럼 명시적 캐스팅
+        db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+        db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"], errors='coerce').fillna(0).astype(int)
+
+        # Status 현황판 (파이프라인 복원)
+        status_counts = db_df["Status"].value_counts()
+        c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
+        c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
+        c_m2.metric("🔵 PO Received (수주)", f"{status_counts.get('🔵 PO Received', 0)} 건")
+        c_m3.metric("🟣 Invoiced (청구)", f"{status_counts.get('🟣 Invoiced', 0)} 건")
+        c_m4.metric("🟢 Paid (입금완료)", f"{status_counts.get('🟢 Paid', 0)} 건")
+        c_m5.metric("🔴 Cancelled (취소)", f"{status_counts.get('🔴 Cancelled', 0)} 건")
+        st.markdown("<hr style='margin: 12px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
+
         if not db_df.empty:
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
             valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "OurRef", "YourRef"]
@@ -1578,7 +1594,13 @@ elif menu == "서류 관리 대장":
 elif menu == "자재 단가 마스터 DB":
     st.markdown(f"""<div class="main-header"><h1>{t('item_master_title')}</h1><p>구매/판매 자재 및 품목 단가 정보를 통합 관리합니다. 더주원 등 공급사 가격표를 AI로 자동 수집할 수 있습니다.</p></div>""", unsafe_allow_html=True)
 
-    item_df = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
+    item_df = safe_read_csv(ITEM_MASTER_FILE, item_master_cols)
+    item_df = ensure_cols(item_df, item_master_cols)
+    item_df = clean_df(item_df)
+
+    # StreamlitAPIException 형변환 치유: 숫자형 컬럼 명시적 캐스팅
+    item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+    item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
 
     with st.container(border=True):
         if not item_df.empty:
@@ -1719,6 +1741,9 @@ elif menu == "관리자 메뉴":
         with admin_tab1:
             st.markdown("### 🏢 자사 서류 대장 수정 및 삭제")
             our_df_admin = clean_df(ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols))
+            our_df_admin["TotalAmount"] = pd.to_numeric(our_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+            our_df_admin["ItemCount"] = pd.to_numeric(our_df_admin["ItemCount"], errors='coerce').fillna(0).astype(int)
+            
             edited_our_admin = st.data_editor(our_df_admin, num_rows="dynamic", use_container_width=True, key="admin_our_editor")
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -1735,6 +1760,9 @@ elif menu == "관리자 메뉴":
         with admin_tab2:
             st.markdown("### 🤝 고객사 / 공급사 서류 대장 수정 및 삭제")
             cust_df_admin = clean_df(ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols))
+            cust_df_admin["TotalAmount"] = pd.to_numeric(cust_df_admin["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+            cust_df_admin["ItemCount"] = pd.to_numeric(cust_df_admin["ItemCount"], errors='coerce').fillna(0).astype(int)
+
             edited_cust_admin = st.data_editor(cust_df_admin, num_rows="dynamic", use_container_width=True, key="admin_cust_editor")
             col1, col2 = st.columns([1, 1])
             with col1:
@@ -1751,6 +1779,9 @@ elif menu == "관리자 메뉴":
         with admin_tab3:
             st.markdown("### 📦 자재 단가 마스터 DB 수정 및 삭제")
             item_df_admin = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
+            item_df_admin["BuyPrice"] = pd.to_numeric(item_df_admin["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+            item_df_admin["ListPrice"] = pd.to_numeric(item_df_admin["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+
             edited_item_admin = st.data_editor(item_df_admin, num_rows="dynamic", use_container_width=True, key="admin_item_editor")
             col1, col2 = st.columns([1, 1])
             with col1:
