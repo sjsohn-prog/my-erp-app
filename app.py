@@ -394,7 +394,7 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 12번 요구사항: 상단 우측 위치 KR / EN 언어 선택 스위치 (100% 깔끔한 컬럼 배치)
+# 12번 요구사항: 상단 우측 위치 KR / EN 언어 선택 스위치
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
@@ -454,7 +454,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (요구사항 1: 헤더배치, 2: 품목우측정렬, 3: 박스공백축소, 4: 매페이지 상단반복, 5: 페이지번호 1/5, 6: 맑은고딕, 7: 선두께 슬림화)
+# (4번 핵심: image_2e1e21.png 디자인으로 좌/우 배치 & 100% 가로폭 구분선 매 페이지 상단 고정!)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -464,35 +464,56 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     
-    /* 5번: 페이지 번호 1/5 형식, 6번: 전체 맑은 고딕 폰트 적용, 4번: 매페이지 상단 헤더 반복 */
+    /* 5번: 페이지 번호 1/5 형식, 6번: 전체 맑은 고딕 폰트 적용 */
     @page { 
         size: A4; 
-        margin: 28mm 8mm 15mm 8mm; 
+        margin-top: 26mm; 
+        margin-bottom: 15mm;
+        margin-left: 8mm;
+        margin-right: 8mm;
         @bottom-center {
             content: counter(page) " / " counter(pages);
             font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-        }
-        @top-center {
-            content: element(repeat-header);
         }
     }
 
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
     
-    /* 4번: 모든 페이지 상단 반복 헤더 & 7번: 구분선 굵게 */
-    div.repeat-header {
-        position: running(repeat-header);
+    /* 4번 핵심: position: fixed로 매 페이지 최상단에 image_2e1e21.png 헤더 완벽 고정 */
+    div.header-repeat {
+        position: fixed;
+        top: -20mm;
+        left: 0;
+        right: 0;
         width: 100%;
         border-bottom: 2.5px solid #000;
-        padding-bottom: 4px;
+        padding-bottom: 3px;
     }
-    div.repeat-header .logo-img { height: 26px; vertical-align: middle; }
-    div.repeat-header .company-name-small { font-size: 12pt; font-weight: 800; color: #0284C7; vertical-align: middle; }
-    div.repeat-header .doc-type-right { float: right; font-size: 14pt; font-weight: 800; color: #0F172A; text-decoration: underline; letter-spacing: 1px; }
+    
+    .header-table {
+        width: 100%;
+        border-collapse: collapse;
+        border: none !important;
+        margin: 0 !important;
+    }
+    .header-table td {
+        border: none !important;
+        padding: 0 !important;
+        vertical-align: bottom;
+    }
+    .doc-title-text {
+        font-size: 20pt;
+        font-weight: 800;
+        text-align: right;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: #0F172A;
+        text-decoration: underline;
+    }
 
-    /* 7번: 표 테두리선은 0.6px로 슬림화 */
-    table { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
-    th, td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
+    /* 7번: 표 테두리선 0.6px 슬림화 */
+    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; }
+    table.data-table th, table.data-table td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
@@ -505,33 +526,33 @@ INLINE_HTML_TEMPLATE = """
     .col-price { width: 16%; text-align: right !important; }
     .col-amt { width: 16%; text-align: right !important; }
     
-    /* 3번: 하단 박스 여백/공백 상하 축소 */
+    /* 3번: 하단 박스 공백 축소 */
     .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; }
     .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
 
-    <!-- 4번: 매 페이지마다 반복되는 상단 헤더 영역 -->
-    <div class="repeat-header">
-        <table style="width: 100%; border: none; margin: 0; padding: 0;">
+    <!-- 4번: image_2e1e21.png와 100% 일치하는 매 페이지 반복 고정 헤더 -->
+    <div class="header-repeat">
+        <table class="header-table">
             <tr>
-                <td style="width: 50%; border: none; text-align: left; padding: 0; vertical-align: middle;">
+                <td style="text-align: left; width: 50%;">
                     {% if logo_base64 %}
-                    <img class="logo-img" src="data:image/png;base64,{{ logo_base64 }}" />
+                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 42px;" />
                     {% else %}
-                    <span class="company-name-small">ONE SOLUTION CO., LTD.</span>
+                    <span style="font-size: 16pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
                     {% endif %}
                 </td>
-                <td style="width: 50%; border: none; text-align: right; padding: 0; vertical-align: middle;">
-                    <span class="doc-type-right">{{ doc_title }}</span>
+                <td style="text-align: right; width: 50%;">
+                    <div class="doc-title-text">{{ doc_title }}</div>
                 </td>
             </tr>
         </table>
     </div>
 
     <!-- 1번 요구사항: 좌측(상대방)/우측(우리) 및 하단 Project Title 완벽 배열 -->
-    <table>
+    <table class="data-table">
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
             <td class="hdr-label">PIC</td><td class="hdr-value">{{ pic }}</td>
@@ -559,7 +580,7 @@ INLINE_HTML_TEMPLATE = """
 
     <div class="currency">Currency: {{ currency }}</div>
     
-    <table>
+    <table class="data-table">
         <thead>
             <tr>
                 <td class="item-th col-no">No.</td>
@@ -645,7 +666,6 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         amt_val = safe_float(item.get('Amount', 0))
         rem = clean_str(item.get('Remarks', ''))
         
-        # 품목명, 설명, 수량, 금액 중 하나라도 작성된 행만 유효 품목으로 추출
         if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
             valid_items.append(item)
 
@@ -705,7 +725,7 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# 10번 KeyError 원천 방지: 구버전 CSV 파일 자동 보정
+# 10번 KeyError 차단
 db_init = safe_read_csv(DB_FILE, db_cols)
 db_init = ensure_cols(db_init, db_cols)
 clean_df(db_init).to_csv(DB_FILE, index=False)
