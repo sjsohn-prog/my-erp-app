@@ -762,7 +762,7 @@ if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 # ==========================================
-# 4. AI 파싱 엔진 (Gemini 3.6 Flash 단일 고정)
+# 4. AI 파싱 엔진 (Gemini 최신 표준 모델 적용)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
@@ -770,9 +770,9 @@ def get_ai_response(api_key, content_list, mode="flash"):
     genai.configure(api_key=api_key.strip())
     
     if mode == "thinking":
-        candidate_models = ['gemini-3.6-flash-thinking', 'gemini-3.6-flash', 'gemini-2.5-flash']
+        candidate_models = ['gemini-3.6-flash-thinking', 'gemini-3.6-flash', 'gemini-1.5-flash']
     else:
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash']
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-1.5-flash']
 
     last_err = None
     for model_name in candidate_models:
@@ -788,7 +788,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
         except Exception as e:
             last_err = e
             continue
-    raise Exception(f"Gemini 3.6 Flash 모델 호출에 실패했습니다: {last_err}")
+    raise Exception(f"Gemini 모델 호출에 실패했습니다: {last_err}")
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
@@ -954,7 +954,7 @@ elif st.session_state['current_menu'] != menu:
 
 task = st.session_state['bg_task']
 if is_running:
-    st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 정 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
 elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
@@ -1246,7 +1246,7 @@ if menu == "서류 통합 생성":
                             lines = [line.strip() for line in re.split(r'\n|<br>', desc_text if desc_text else iname_text) if line.strip()]
                             
                             if len(lines) <= 1:
-                                st.info("해당 행은 줄바꿈이 없거나 1줄이어서 나눌 수 정 할 수 없습니다.")
+                                st.info("해당 행은 줄바꿈이 없거나 1줄이어서 나눌 수 없습니다.")
                             else:
                                 split_rows = []
                                 for idx_l, line in enumerate(lines):
