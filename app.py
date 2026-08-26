@@ -64,7 +64,7 @@ def safe_float(val, default=0.0):
             return default
     return default
 
-# ⭐ [기능 4] 실시간 환율 정보 조회 함수 (USD 기준 API)
+# 실시간 환율 정보 조회 함수 (USD 기준 API)
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
     try:
@@ -75,7 +75,6 @@ def get_exchange_rates():
             rates = data.get("rates", {})
             return rates
     except Exception:
-        # Network error fallback standard rates
         return {"KRW": 1350.0, "USD": 1.0, "EUR": 0.92, "SGD": 1.35, "JPY": 155.0, "CNY": 7.23}
 
 # ==========================================
@@ -550,7 +549,6 @@ if os.path.exists(DB_FILE):
 else:
     pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
 
-# ⭐ [기능 3] 관리대장 초기화 및 Status 컬럼 포함 체계
 if not os.path.exists(LEDGER_FILE):
     pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
 
@@ -570,7 +568,6 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ⭐ [기능 3] 관리대장 저장 함수: DocType 기반 초기 Status 자동 할당
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
     
@@ -586,7 +583,6 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
     doc_date_str = doc_date_str or "-"
     logged_user = user_email or st.session_state.get('user_email', 'Unknown')
 
-    # 서류 유형별 초기 파이프라인 Status 설정
     if doc_type == "Quotation": default_status = "Quoted"
     elif doc_type == "Purchase Order": default_status = "PO Received"
     elif doc_type == "Invoice": default_status = "Invoiced"
@@ -662,6 +658,7 @@ def clean_str(val):
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
 def render_unified_input(label, current_val, base_options, key_prefix):
+    display_label = f"▾ {label}" if not label.startswith("▾") else label
     curr = clean_str(current_val)
     options = [""]
     
@@ -685,7 +682,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     if curr and curr in options and st.session_state.get(sel_key) != curr and st.session_state.get(sel_key) != direct_label:
         st.session_state[sel_key] = curr
 
-    selected = st.selectbox(label, options=options, key=sel_key)
+    selected = st.selectbox(display_label, options=options, key=sel_key)
     
     if selected == direct_label:
         val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
@@ -828,7 +825,6 @@ if st.session_state.get('user_email'):
 
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 12px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
-# ⭐ [기능 4] 사이드바 실시간 환율 정보 연동 표시
 live_rates = get_exchange_rates()
 usd_krw = live_rates.get("KRW", 1350.0)
 eur_usd = live_rates.get("EUR", 0.92)
@@ -1154,7 +1150,11 @@ if menu == "서류 통합 생성":
                 if amt_curr == 0.0 and u_price > 0:
                     df_current.at[i, 'Amount'] = qty * u_price
 
-            edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
+            edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
+
+            # ⭐ 수치 타입 안전 변환을 통해 TypeError 사전 방지
+            edited_df['UnitPrice'] = edited_df['UnitPrice'].apply(safe_float)
+            edited_df['Amount'] = edited_df['Amount'].apply(safe_float)
 
             for i, row in edited_df.iterrows():
                 pno = clean_str(row.get('PartNo'))
@@ -1173,15 +1173,16 @@ if menu == "서류 통합 생성":
                     
                     u_p_curr = safe_float(row.get('UnitPrice', 0))
                     if u_p_curr == 0.0:
-                        u_p = float(match_row.get('UnitPrice', 0.0))
+                        u_p = safe_float(match_row.get('UnitPrice', 0.0))
                         edited_df.at[i, 'UnitPrice'] = u_p
+
+            edited_df = clean_df(edited_df)
 
             if "Amount" in edited_df.columns:
                 total_val = edited_df["Amount"].apply(safe_float).sum()
                 curr_symbol = currency if currency else "KRW"
                 st.markdown(f'<div class="total-badge">Total Amount: {curr_symbol} {total_val:,.2f}</div>', unsafe_allow_html=True)
                 
-                # ⭐ [기능 4] 이중 통화 실시간 환산 표기 (USD <-> KRW 등)
                 if curr_symbol == "KRW":
                     converted_val = total_val / usd_krw if usd_krw else 0
                     st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
@@ -1240,11 +1241,23 @@ if menu == "서류 통합 생성":
             else:
                 st.info("Generating PDF preview...")
 
-            # ⭐ [기능 2] AI 영업 이메일 초안 자동 생성 및 Mailto 원클릭 전송
-            with st.expander("📧 AI 영업 이메일 초안 작성 (Email Generator)", expanded=False):
+            is_email_expanded = 'generated_email_body' in st.session_state or st.session_state.get('open_email_expander', False)
+            
+            with st.expander("📧 AI 영업 이메일 초안 작성 (Email Generator)", expanded=is_email_expanded):
+                
+                col_em1, col_em2 = st.columns(2)
+                with col_em1:
+                    email_to = st.text_input("수신인 (To)", value=st.session_state.get('email_to', ''), key="em_to")
+                    email_from = st.text_input("발신인 (From)", value=st.session_state.get('user_email', ''), disabled=True, key="em_from")
+                with col_em2:
+                    email_cc = st.text_input("참조인 (CC)", value=st.session_state.get('email_cc', ''), key="em_cc")
+                    default_subj = f"[{doc_type}] {our_ref or your_ref or ship_name} - 1SOLUTION"
+                    email_subject = st.text_input("이메일 제목 (Subject)", value=st.session_state.get('email_subject', default_subj), key="em_subject")
+
                 email_lang = st.radio("메일 언어 선택", ["English", "Korean"], horizontal=True, key="email_lang_choice")
                 
                 if st.button("✨ 영업 이메일 본문 생성", key="btn_gen_email"):
+                    st.session_state['open_email_expander'] = True
                     with st.spinner("AI가 비즈니스 메일 초안을 작성 중입니다..."):
                         email_prompt = f"""
                         Write a professional sales email for sending document [{doc_type}].
@@ -1267,17 +1280,19 @@ if menu == "서류 통합 생성":
                             model = genai.GenerativeModel("gemini-3.6-flash")
                             res = model.generate_content(email_prompt)
                             st.session_state['generated_email_body'] = res.text.strip()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Email Generation Error: {e}")
                 
                 if 'generated_email_body' in st.session_state:
-                    email_body_text = st.text_area("메일 본문 (수정 가능)", value=st.session_state['generated_email_body'], height=200)
+                    email_body_text = st.text_area("메일 본문 (수정 가능)", value=st.session_state['generated_email_body'], height=220)
                     
-                    # Mailto 원클릭 링크 생성
-                    subject_str = f"[{doc_type}] {our_ref or your_ref or ship_name} - 1SOLUTION"
-                    encoded_subject = urllib.parse.quote(subject_str)
-                    encoded_body = urllib.parse.quote(email_body_text)
-                    mailto_url = f"mailto:?subject={encoded_subject}&body={encoded_body}"
+                    enc_to = urllib.parse.quote(email_to)
+                    enc_cc = urllib.parse.quote(email_cc)
+                    enc_subj = urllib.parse.quote(email_subject)
+                    enc_body = urllib.parse.quote(email_body_text)
+                    
+                    mailto_url = f"mailto:{enc_to}?cc={enc_cc}&subject={enc_subj}&body={enc_body}"
                     
                     st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
@@ -1333,7 +1348,6 @@ elif menu == "서류 관리대장":
 
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
 
-            # ⭐ [기능 3] 영업 파이프라인 Status 상태 실시간 수정 및 데이터에디터 연동
             ledger_config = {
                 "Status": st.column_config.SelectboxColumn("Status (파이프라인)", options=STATUS_OPTIONS, required=True),
                 "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
