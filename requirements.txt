@@ -2,6 +2,8 @@ streamlit
 pandas
 jinja2
 google-generativeai
-pillow
+Pillow
 weasyprint
 PyMuPDF
+openpyxl
+xlrd
