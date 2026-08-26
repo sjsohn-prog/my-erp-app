@@ -162,7 +162,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         return selected
 
 # ==========================================
-# 0-2. i18n 다국어 사전 (SYSTEM MENU 개편)
+# 0-2. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -182,7 +182,7 @@ TRANSLATIONS = {
         "ai_mode_label": "AI 분석 엔진 선택",
         "mode_flash": "⚡ Gemini 3.6 Flash (고속)",
         "mode_thinking": "🧠 Gemini 3.6 Flash (사고)",
-        "upload_doc_label": "문서 업로드 (PDF, JPG, PNG)",
+        "upload_doc_label": "문서 및 파일 업로드 (PDF, JPG, PNG, XLSX, CSV)",
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
@@ -203,7 +203,7 @@ TRANSLATIONS = {
         "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
         "no_ledger": "등록된 서류 내역이 없습니다.",
         "ai_db_title": "🤖 AI DB 수집기",
-        "upload_db_label": "DB 파일 업로드",
+        "upload_db_label": "DB 파일/문서 업로드 (PDF, JPG, PNG, XLSX, CSV)",
         "parse_mode": "파싱 모드",
         "parse_mode_sheet": "📌 특정 시트 선택",
         "parse_mode_all": "🚀 전체 시트 파싱",
@@ -234,7 +234,7 @@ TRANSLATIONS = {
         "ai_mode_label": "Select AI Engine",
         "mode_flash": "⚡ Gemini 3.6 Flash (Fast)",
         "mode_thinking": "🧠 Gemini 3.6 Flash (Thinking)",
-        "upload_doc_label": "Upload Document (PDF, JPG, PNG)",
+        "upload_doc_label": "Upload Document/Data (PDF, JPG, PNG, XLSX, CSV)",
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
@@ -255,7 +255,7 @@ TRANSLATIONS = {
         "btn_download_csv": "📥 Download Filtered Excel (CSV)",
         "no_ledger": "No document records found.",
         "ai_db_title": "🤖 AI DB Collector",
-        "upload_db_label": "Upload DB File",
+        "upload_db_label": "Upload DB File/Document (PDF, JPG, PNG, XLSX, CSV)",
         "parse_mode": "Parsing Mode",
         "parse_mode_sheet": "📌 Select Specific Sheet",
         "parse_mode_all": "🚀 Parse All Sheets",
@@ -779,7 +779,6 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# 자사 DB 및 고객사 DB 파일 초기화
 our_db_init = safe_read_csv(OUR_DB_FILE, db_cols)
 our_db_init = ensure_cols(our_db_init, db_cols)
 clean_df(our_db_init).to_csv(OUR_DB_FILE, index=False)
@@ -849,7 +848,7 @@ if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 # ==========================================
-# 4. AI 파싱 엔진
+# 4. AI 파싱 엔진 (PDF, PNG, JPG, JPEG, XLSX, XLS, CSV 전체 확장)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
@@ -950,7 +949,27 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         }}
         Return ONLY raw JSON.
         """
-        content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
+        if file_ext in ['png', 'jpg', 'jpeg']:
+            content = Image.open(io.BytesIO(file_bytes))
+        elif file_ext == 'pdf':
+            content = {"mime_type": "application/pdf", "data": file_bytes}
+        elif file_ext in ['xlsx', 'xls']:
+            xl = pd.ExcelFile(io.BytesIO(file_bytes))
+            sheets_txt = []
+            for s in xl.sheet_names:
+                df_s = pd.read_excel(xl, sheet_name=s).dropna(how='all').dropna(how='all', axis=1)
+                if not df_s.empty:
+                    sheets_txt.append(f"--- Sheet: {s} ---\n" + df_s.to_csv(index=False))
+            content = "Excel Table Content:\n" + "\n\n".join(sheets_txt)
+        elif file_ext == 'csv':
+            try:
+                df_c = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1)
+                content = "CSV Table Content:\n" + df_c.to_csv(index=False)
+            except Exception:
+                content = "CSV Raw Content:\n" + file_bytes.decode('utf-8', errors='ignore')
+        else:
+            content = {"mime_type": "application/pdf", "data": file_bytes}
+
         ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
         task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data}
         task_state['status'] = 'completed'
@@ -958,21 +977,62 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-def run_bg_sheet_parse(task_state, api_key, excel_bytes, sheet_names, ai_mode):
+def run_bg_db_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 DB 수집용 파일({file_name})을 분석 중입니다...'
+        
+        file_ext = file_name.split('.')[-1].lower()
         all_results = []
-        excel_file = pd.ExcelFile(io.BytesIO(excel_bytes))
-        for idx, s_name in enumerate(sheet_names):
-            task_state['progress_msg'] = f"[{idx+1}/{len(sheet_names)}] '{s_name}' 시트 추출 중..."
+        
+        db_prompt = """
+        Extract ALL document/ledger records from the provided file into a JSON Array of objects matching this exact structure:
+        [
+            {
+                "IssueDate": "",
+                "DocDate": "",
+                "DocType": "",
+                "OurRef": "",
+                "YourRef": "",
+                "ShipName": "",
+                "TargetName": "",
+                "Currency": "KRW",
+                "TotalAmount": 0.0,
+                "ItemCount": 1,
+                "CreatedBy": "",
+                "Status": "🟡 Quoted"
+            }
+        ]
+        CRITICAL RULES:
+        - IssueDate and DocDate formatted as YYYY-MM-DD.
+        - TotalAmount must be a numeric value or float.
+        - Return ONLY a valid JSON Array.
+        """
+
+        if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
+            content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
+            res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
+            if isinstance(res, list): all_results.extend(res)
+        elif file_ext in ['xlsx', 'xls']:
+            excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
+            for idx, s_name in enumerate(sheets_to_parse):
+                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 추출 중..."
+                try:
+                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all').dropna(how='all', axis=1)
+                    if not df_clean.empty:
+                        res = get_ai_response(api_key, [db_prompt, f"CSV Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        if isinstance(res, list): all_results.extend(res)
+                except Exception: pass
+        elif file_ext == 'csv':
             try:
-                df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all').dropna(how='all', axis=1)
+                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1)
                 if not df_clean.empty:
-                    prompt = f"Extract ALL items from sheet '{s_name}' into JSON Array: [{{\"IssueDate\":\"\", \"DocDate\":\"\", \"DocType\":\"\", \"OurRef\":\"\", \"YourRef\":\"\", \"ShipName\":\"\", \"TargetName\":\"\", \"Currency\":\"KRW\", \"TotalAmount\":0.0, \"ItemCount\":1, \"CreatedBy\":\"\", \"Status\":\"🟡 Quoted\"}}]."
-                    res = get_ai_response(api_key, [prompt, f"CSV:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                    res = get_ai_response(api_key, [db_prompt, f"CSV Table Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
             except Exception: pass
-            
+
         parsed_df = pd.DataFrame(all_results)
         parsed_df = ensure_cols(parsed_df, db_cols)
         task_state['result'] = clean_df(parsed_df)
@@ -1012,7 +1072,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바 (SYSTEM MENU 개편)
+# 5. UI 및 사이드바
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1062,7 +1122,7 @@ elif task['status'] == 'error' and menu == "자사 서류 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 자사 서류 생성 (기존 '서류 통합 생성')
+# 6. 자사 서류 생성
 # ==========================================
 if menu == "자사 서류 생성":
     doc_type = st.sidebar.selectbox(
@@ -1180,7 +1240,7 @@ if menu == "자사 서류 생성":
         with st.expander(t("ai_expander_title"), expanded=False):
             ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
-            uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg"], disabled=is_running)
+            uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running)
             if uploaded_doc and st.button(t("btn_ai_parse"), disabled=is_running):
                 st.session_state['bg_task']['type'] = 'doc_parse'
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode))
@@ -1371,7 +1431,6 @@ if menu == "자사 서류 생성":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
-            # 자사 서류 DB(our_db.csv)로 저장 연동
             if st.button(t("btn_register"), type="secondary", disabled=is_running):
                 if reg_pwd != SAVE_PASSWORD:
                     st.error(t("pwd_err"))
@@ -1474,7 +1533,7 @@ if menu == "자사 서류 생성":
                         st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 자사 서류 DB 관리 (our_db.csv 연동)
+# 7. 자사 서류 DB 관리 (PDF, PNG, JPG, JPEG, XLSX, XLS, CSV 지원)
 # ==========================================
 elif menu == "자사 서류 DB 관리":
     our_db_df = safe_read_csv(OUR_DB_FILE, db_cols)
@@ -1567,27 +1626,34 @@ elif menu == "자사 서류 DB 관리":
         else:
             st.info(t("no_ledger"))
 
-    # AI DB 수집기
+    # AI DB 수집기 (PDF, PNG, JPG, JPEG, XLSX, XLS, CSV 포맷 전면 확대)
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (자사 서류 추가 수집)</div>', unsafe_allow_html=True)
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="our_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running, key="our_db_uploader")
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running, key="our_db_uploader")
         
         if uploaded_db_file:
-            sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="our_db_parse_mode")
-            if parse_mode == t("parse_mode_sheet"):
-                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="our_db_sheet_sel")
-                if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze"):
-                    st.session_state['bg_task']['type'] = 'our_db_parse'
-                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
-                    st.rerun()
+            up_ext = uploaded_db_file.name.split('.')[-1].lower()
+            if up_ext in ['xlsx', 'xls']:
+                sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
+                parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="our_db_parse_mode")
+                if parse_mode == t("parse_mode_sheet"):
+                    selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="our_db_sheet_sel")
+                    if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze"):
+                        st.session_state['bg_task']['type'] = 'our_db_parse'
+                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
+                        st.rerun()
+                else:
+                    if st.button(t("btn_parse_all"), disabled=is_running, key="btn_our_db_parse_all"):
+                        st.session_state['bg_task']['type'] = 'our_db_parse'
+                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
+                        st.rerun()
             else:
-                if st.button(t("btn_parse_all"), disabled=is_running, key="btn_our_db_parse_all"):
+                if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze_direct"):
                     st.session_state['bg_task']['type'] = 'our_db_parse'
-                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
+                    start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [], selected_mode_db))
                     st.rerun()
 
         if 'temp_our_db_upload' in st.session_state and not st.session_state['temp_our_db_upload'].empty:
@@ -1603,7 +1669,7 @@ elif menu == "자사 서류 DB 관리":
                     st.success("Successfully saved to In-house DB.")
                     st.rerun()
 
-    # 자사 서류 DB 초기화 기능
+    # 자사 서류 DB 초기화
     with st.container(border=True):
         with st.expander("🚨 자사 서류 DB 초기화"):
             pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_our_db_pwd")
@@ -1613,7 +1679,7 @@ elif menu == "자사 서류 DB 관리":
                 st.rerun()
 
 # ==========================================
-# 8. 고객사 서류 DB 관리 (customer_db.csv 연동)
+# 8. 고객사 서류 DB 관리 (PDF, PNG, JPG, JPEG, XLSX, XLS, CSV 지원)
 # ==========================================
 elif menu == "고객사 서류 DB 관리":
     customer_db_df = safe_read_csv(CUSTOMER_DB_FILE, db_cols)
@@ -1683,27 +1749,34 @@ elif menu == "고객사 서류 DB 관리":
         else:
             st.info(t("no_ledger"))
 
-    # AI DB 수집기
+    # AI DB 수집기 (PDF, PNG, JPG, JPEG, XLSX, XLS, CSV 포맷 전면 확대)
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (고객사 DB 수집)</div>', unsafe_allow_html=True)
         
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="cust_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running, key="cust_db_uploader")
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], disabled=is_running, key="cust_db_uploader")
         
         if uploaded_db_file:
-            sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="cust_db_parse_mode")
-            if parse_mode == t("parse_mode_sheet"):
-                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="cust_db_sheet_sel")
-                if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze"):
-                    st.session_state['bg_task']['type'] = 'customer_db_parse'
-                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
-                    st.rerun()
+            up_ext = uploaded_db_file.name.split('.')[-1].lower()
+            if up_ext in ['xlsx', 'xls']:
+                sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
+                parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="cust_db_parse_mode")
+                if parse_mode == t("parse_mode_sheet"):
+                    selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="cust_db_sheet_sel")
+                    if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze"):
+                        st.session_state['bg_task']['type'] = 'customer_db_parse'
+                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [selected_sheet], selected_mode_db))
+                        st.rerun()
+                else:
+                    if st.button(t("btn_parse_all"), disabled=is_running, key="btn_cust_db_parse_all"):
+                        st.session_state['bg_task']['type'] = 'customer_db_parse'
+                        start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, sheet_names, selected_mode_db))
+                        st.rerun()
             else:
-                if st.button(t("btn_parse_all"), disabled=is_running, key="btn_cust_db_parse_all"):
+                if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze_direct"):
                     st.session_state['bg_task']['type'] = 'customer_db_parse'
-                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
+                    start_bg_thread(run_bg_db_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), uploaded_db_file.name, [], selected_mode_db))
                     st.rerun()
 
         if 'temp_customer_db_upload' in st.session_state and not st.session_state['temp_customer_db_upload'].empty:
