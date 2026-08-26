@@ -1434,7 +1434,7 @@ if menu == "서류 분석 / 생성 Master":
 
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
             with btn_col1:
-                if st.button("🚀 스마트 일괄 자동 등록 (인풋→고객사 / 생성→자사 / 품목→자재)", key="btn_reg_all_batch", disabled=is_running):
+                if st.button("🚀 스마트 일괄 자동 등록 ", key="btn_reg_all_batch", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
                         # 1. AI로 분석된 타사 인풋 서류가 있으면 '고객사/공급사 서류 대장'에 저장
