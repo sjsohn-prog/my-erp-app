@@ -51,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 9번 & 10번 요구사항: 서류 관리대장 및 마스터 DB 동일 열 레이아웃 정의 (Status 맨 뒤, OurRef 4번째)
+# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
 ledger_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
@@ -151,7 +151,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         return selected
 
 # ==========================================
-# 0-2. i18n 다국어 사전 (11번: menu_history -> 서류이력 변경)
+# 0-2. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -306,7 +306,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. 페이지 설정 & CSS (12번: KR/EN 언어 선택 위치 조정 포함)
+# 1. 페이지 설정 & CSS
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
@@ -315,22 +315,6 @@ if 'lang' not in st.session_state:
 
 custom_css = """
 <style>
-    /* 12번: KR / EN 언어 전환 영역을 우상단 메뉴 바로 밑에 깔끔히 밀착배치 */
-    .top-lang-container {
-        position: fixed;
-        top: 45px;
-        right: 25px;
-        z-index: 999999;
-        background: rgba(15, 23, 42, 0.85);
-        border: 1px solid #0284C7;
-        padding: 4px 10px;
-        border-radius: 20px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    }
-    .top-lang-container div[data-testid="stRadio"] > div {
-        flex-direction: row !important;
-        gap: 8px !important;
-    }
     .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
     .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
     .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
@@ -401,14 +385,13 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 12번: 상단 우측 위치 언어 전환 라디오 버튼
-st.markdown('<div class="top-lang-container">', unsafe_allow_html=True)
-selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
-st.markdown('</div>', unsafe_allow_html=True)
-
-if selected_lang != st.session_state['lang']:
-    st.session_state['lang'] = selected_lang
-    st.rerun()
+# 메인 상단 깔끔한 KR/EN 스위치 컬럼
+top_l_col, top_r_col = st.columns([8.5, 1.5])
+with top_r_col:
+    selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
+    if selected_lang != st.session_state['lang']:
+        st.session_state['lang'] = selected_lang
+        st.rerun()
 
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
@@ -462,7 +445,6 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (요구사항 1: 헤더 배치, 2: 품목 우측정렬, 3: 박스 공백 축소, 4: 매페이지 상단 반복, 5: 페이지번호 1/5, 6: 맑은고딕, 7: 선 두께 슬림화)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -472,7 +454,6 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     
-    /* 5번: 페이지 번호 1/5 형식, 6번: 전체 맑은 고딕 폰트 적용, 4번: 매페이지 상단 헤더 반복 */
     @page { 
         size: A4; 
         margin: 28mm 8mm 15mm 8mm; 
@@ -487,7 +468,6 @@ INLINE_HTML_TEMPLATE = """
 
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
     
-    /* 4번: 모든 페이지 상단 반복 헤더 & 7번: 구분선 굵게 */
     div.repeat-header {
         position: running(repeat-header);
         width: 100%;
@@ -498,7 +478,6 @@ INLINE_HTML_TEMPLATE = """
     div.repeat-header .company-name-small { font-size: 12pt; font-weight: 800; color: #0284C7; vertical-align: middle; }
     div.repeat-header .doc-type-right { float: right; font-size: 14pt; font-weight: 800; color: #0F172A; text-decoration: underline; letter-spacing: 1px; }
 
-    /* 7번: 표 일반 테두리선은 0.6px로 슬림화 */
     table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
     th, td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
@@ -506,21 +485,18 @@ INLINE_HTML_TEMPLATE = """
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     
-    /* 2번: Unit Price & Amount 우측 정렬 */
     .col-no { width: 5%; text-align: center; }
     .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
     .col-qty { width: 8%; text-align: center; }
     .col-price { width: 16%; text-align: right; }
     .col-amt { width: 16%; text-align: right; }
     
-    /* 3번: 하단 박스 여백/공백 상하 축소 */
     .remarks-box { border: 0.6px solid #000; padding: 4px 6px; margin-top: 3px; font-size: 8.5pt; white-space: pre-line; font-style: italic; }
     .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
 
-    <!-- 4번: 매 페이지마다 반복되는 상단 헤더 영역 -->
     <div class="repeat-header">
         {% if logo_base64 %}
         <img class="logo-img" src="data:image/png;base64,{{ logo_base64 }}" />
@@ -530,7 +506,6 @@ INLINE_HTML_TEMPLATE = """
         <span class="doc-type-right">{{ doc_title }}</span>
     </div>
 
-    <!-- 1번: 요구하신 헤더 좌/우/하단 배열 -->
     <table>
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
@@ -601,7 +576,6 @@ INLINE_HTML_TEMPLATE = """
     <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 2px;">{{ vat_note }}</div>
     {% endif %}
 
-    <!-- 3번: 하단 박스 세로 공백 축소 -->
     {% if terms_conditions %}
     <div class="remarks-box">
         <strong><em>[Terms & Conditions]</em></strong><br>
@@ -620,7 +594,7 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 필수 도구 (8번: 빈 행 자동 제거 기능)
+# 3. 환경 및 데이터 정제 필수 도구 (KeyError 안전 방지)
 # ==========================================
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
@@ -630,7 +604,6 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 8번 요구사항: 빈 행(No. 9 등) 자동 걸러내기
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -645,7 +618,6 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         amt_val = safe_float(item.get('Amount', 0))
         rem = clean_str(item.get('Remarks', ''))
         
-        # 완전 비어있는 줄 제거
         if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
             valid_items.append(item)
 
@@ -705,11 +677,18 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
+# 2번 KeyError 완벽 방지: 구 버전 DB/대장 파일 호환을 위한 컬럼 자동 채우기
 db_init = safe_read_csv(DB_FILE, db_cols)
+for c in db_cols:
+    if c not in db_init.columns:
+        db_init[c] = "-"
 clean_df(db_init[db_cols]).to_csv(DB_FILE, index=False)
 
 ledger_init = safe_read_csv(LEDGER_FILE, ledger_cols)
-clean_df(ledger_init).to_csv(LEDGER_FILE, index=False)
+for c in ledger_cols:
+    if c not in ledger_init.columns:
+        ledger_init[c] = "-"
+clean_df(ledger_init[ledger_cols]).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -817,7 +796,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
         
-        # 입력 문서 저장 (11번 서류이력 바둑판 갤러리용)
         file_ext = file_name.split('.')[-1].lower()
         save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f:
@@ -936,7 +914,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바 (11번: 서류이력 메뉴 적용)
+# 5. UI 및 사이드바
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1288,7 +1266,6 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            # 8번 요구사항: 빈 행 자동 제거된 렌더링 목록 준비
             pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
@@ -1304,7 +1281,6 @@ if menu == "서류 통합 생성":
             realtime_pdf_bytes = generate_pdf(preview_ctx)
             file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
             
-            # 완성된 PDF 파일도 output 폴더에 저장 (11번 서류이력 조회용)
             pdf_save_path = os.path.join("output", file_n)
             with open(pdf_save_path, "wb") as f:
                 f.write(realtime_pdf_bytes)
@@ -1375,7 +1351,7 @@ if menu == "서류 통합 생성":
                         st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장 (9번 요구사항: OurRef 4번째, Status 맨 뒤로 이동)
+# 7. 서류 관리대장
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
@@ -1385,7 +1361,6 @@ elif menu == "서류 관리대장":
         if not ledger_df.empty:
             ledger_df = clean_df(ledger_df)
             
-            # 9번: OurRef 열과 Status 열의 위치 재배치 보장
             for col in ledger_cols:
                 if col not in ledger_df.columns:
                     ledger_df[col] = "-"
@@ -1434,7 +1409,6 @@ elif menu == "서류 관리대장":
 
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
 
-            # 9번: OurRef가 4번째, Status가 마지막 열로 정렬된 열 설정
             ledger_config = {
                 "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
                 "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
@@ -1463,10 +1437,14 @@ elif menu == "서류 관리대장":
             st.info(t("no_ledger"))
 
 # ==========================================
-# 8. 마스터 DB 관리 (10번 요구사항: 서류 관리대장과 열 이름/구조 100% 동일화)
+# 8. 마스터 DB 관리
 # ==========================================
 elif menu == "마스터 DB 관리":
     db = clean_df(safe_read_csv(DB_FILE, db_cols))
+    for c in db_cols:
+        if c not in db.columns:
+            db[c] = "-"
+    db = db[db_cols]
     
     if task['status'] == 'completed' and task['type'] == 'db_parse':
         st.session_state['temp_db_upload'] = clean_df(task['result'])
@@ -1510,7 +1488,6 @@ elif menu == "마스터 DB 관리":
     
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("db_mgmt_title")}</div>', unsafe_allow_html=True)
-        # 10번: 관리대장과 동일한 컬럼 및 레이아웃으로 편집
         edited_db = clean_df(st.data_editor(db[db_cols], num_rows="dynamic", use_container_width=True))
         
         db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_edit_pwd")
@@ -1530,7 +1507,7 @@ elif menu == "마스터 DB 관리":
                 st.rerun()
 
 # ==========================================
-# 9. 서류이력 (11번 요구사항: 제목 '서류이력' 변경 및 그리드 바둑판식 갤러리 구현)
+# 9. 서류이력
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 바둑판식 카드 그리드로 조회하고 확대할 수 있습니다.</p></div>""", unsafe_allow_html=True)
@@ -1540,7 +1517,6 @@ else:
     with tab_out:
         pdf_files = sorted([f for f in os.listdir("output") if f.endswith('.pdf')], reverse=True)
         if pdf_files:
-            # 3열 바둑판식 그리드 레이아웃
             cols = st.columns(3)
             for idx, file_name in enumerate(pdf_files):
                 col = cols[idx % 3]
@@ -1566,7 +1542,6 @@ else:
     with tab_in:
         input_files = sorted([f for f in os.listdir(INPUT_DOCS_DIR) if os.path.isfile(os.path.join(INPUT_DOCS_DIR, f))], reverse=True)
         if input_files:
-            # 3열 바둑판식 그리드 레이아웃
             cols_in = st.columns(3)
             for idx, file_name in enumerate(input_files):
                 col = cols_in[idx % 3]
