@@ -1207,15 +1207,16 @@ if menu == "서류 분석 / 생성 Master":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
+    # 모든 요소를 문자열(str)로 확실하게 캐스팅하여 정렬 오류 방지
     our_ledger = safe_read_csv(OUR_DB_FILE, doc_db_cols)
     cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
     history = load_history()
 
-    db_to_options = sorted(list(set([x for x in (our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history["to_list"]) if str(x).strip() and str(x) != "-"])))
-    db_ship_options = sorted(list(set([x for x in (our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history["ships"]) if str(x).strip() and str(x) != "-"])))
-    db_attn_options = sorted(list(set([x for x in history["attns"] if str(x).strip() and str(x) != "-"])))
-    db_our_ref_options = sorted(list(set([x for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x) != "-"])))
-    db_your_ref_options = sorted(list(set([x for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x) != "-"])))
+    db_to_options = sorted(list(set([str(x).strip() for x in (our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history.get("to_list", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
+    db_ship_options = sorted(list(set([str(x).strip() for x in (our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history.get("ships", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
+    db_attn_options = sorted(list(set([str(x).strip() for x in history.get("attns", []) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
+    db_our_ref_options = sorted(list(set([str(x).strip() for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
+    db_your_ref_options = sorted(list(set([str(x).strip() for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x).strip() not in ["-", "nan", "None", "NaN"]])))
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
@@ -1465,20 +1466,15 @@ elif menu == "서류 관리 대장":
         db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
         db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(float)
 
-        # 2. Selectbox 옵션 허용값 산출 및 텍스트 컬럼 안전 처리
-        doc_type_opts = ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-", ""]
-        db_df["DocType"] = db_df["DocType"].astype(str).apply(lambda x: x if x in doc_type_opts else "Quotation")
+        # 2. Selectbox 옵션 허용값 산출 및 텍스트 컬럼 안전 처리 (빈값 및 기타값 포함)
+        doc_type_opts = list(set(["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-", ""] + db_df["DocType"].astype(str).unique().tolist()))
+        curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + db_df["Currency"].astype(str).unique().tolist()))
+        status_opts = list(set(STATUS_OPTIONS + ["-", ""] + db_df["Status"].astype(str).unique().tolist()))
 
-        curr_opts = CURRENCY_OPTIONS + ["-", ""]
-        db_df["Currency"] = db_df["Currency"].astype(str).apply(lambda x: x if x in curr_opts else "KRW")
-
-        status_opts = STATUS_OPTIONS + ["-", ""]
-        db_df["Status"] = db_df["Status"].astype(str).apply(lambda x: x if x in status_opts else "🟡 Quoted")
-
-        for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy"]:
+        for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy", "DocType", "Currency", "Status"]:
             db_df[col] = db_df[col].fillna("-").astype(str)
 
-        # 3. Status 현황판 (복원)
+        # 3. Status 현황판
         status_counts = db_df["Status"].value_counts()
         c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
         c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
@@ -1620,10 +1616,9 @@ elif menu == "자재 단가 마스터 DB":
     item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
     item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
     
-    curr_opts = CURRENCY_OPTIONS + ["-", ""]
-    item_df["Currency"] = item_df["Currency"].astype(str).apply(lambda x: x if x in curr_opts else "KRW")
+    curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + item_df["Currency"].astype(str).unique().tolist()))
 
-    for col in ["PartNo", "ItemName", "Description", "Supplier", "Remarks"]:
+    for col in ["PartNo", "ItemName", "Description", "Supplier", "Remarks", "Currency"]:
         item_df[col] = item_df[col].fillna("").astype(str)
 
     with st.container(border=True):
