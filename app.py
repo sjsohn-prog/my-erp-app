@@ -195,9 +195,9 @@ TRANSLATIONS = {
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
         "items_title": "📦 품목 상세 내역 (줄바꿈/엔터 지원 / 열 너비 자동 맞춤)",
         "remarks_title": "📝 Remarks & Deviations",
-        "reg_title": "📌 자사 서류 DB 등록",
+        "reg_title": "📌 DB 데이터 등록 및 저장",
         "pwd_save_label": "🔒 비밀번호",
-        "btn_register": "📥 자사 서류 대장에 등록",
+        "btn_register": "📥 자사 서류 대장에 헤더 등록",
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
         "doc_ledger_title": "📊 서류 통합 관리 대장",
@@ -221,7 +221,7 @@ TRANSLATIONS = {
         "btn_save_db": "💾 DB 수정사항 저장",
         "pwd_admin_label": "관리자 비밀번호 입력",
         "pwd_err": "❌ 비밀번호가 올바르지 않습니다.",
-        "reg_success": "🎉 자사 서류 대장 등록 완료",
+        "reg_success": "🎉 DB 등록 완료",
         "all": "전체",
     },
     "EN": {
@@ -248,9 +248,9 @@ TRANSLATIONS = {
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
         "items_title": "📦 Line Item Details (Multi-line supported / Auto-fit)",
         "remarks_title": "📝 Remarks & Deviations",
-        "reg_title": "📌 Save to In-house Doc DB",
+        "reg_title": "📌 Save Data to DB",
         "pwd_save_label": "🔒 Password",
-        "btn_register": "📥 Save to Document Ledger",
+        "btn_register": "📥 Save Header to Document Ledger",
         "preview_title": "⚡ Live PDF Document Preview",
         "btn_download_pdf": "💾 Download PDF Document",
         "doc_ledger_title": "📊 Document Ledger Management",
@@ -274,7 +274,7 @@ TRANSLATIONS = {
         "btn_save_db": "💾 Save DB Changes",
         "pwd_admin_label": "Enter Admin Password",
         "pwd_err": "❌ Incorrect password.",
-        "reg_success": "🎉 Saved to Document Ledger",
+        "reg_success": "🎉 Saved to DB",
         "all": "All",
     }
 }
@@ -353,7 +353,6 @@ custom_css = """
         gap: 10px !important;
     }
 
-    /* 파일 업로드 칩 옆의 '+' 버튼 완전 숨기기 */
     div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
     div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
@@ -840,6 +839,39 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
     updated_df = ensure_cols(updated_df, doc_db_cols)
     clean_df(updated_df).to_csv(target_db_file, index=False)
 
+def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW"):
+    if items_df is None or items_df.empty:
+        return 0
+    master_df = safe_read_csv(ITEM_MASTER_FILE, item_master_cols)
+    master_df = ensure_cols(master_df, item_master_cols)
+    
+    new_rows = []
+    for _, row in items_df.iterrows():
+        pno = clean_str(row.get('PartNo', ''))
+        iname = clean_str(row.get('ItemName', ''))
+        desc = clean_str(row.get('Description', ''))
+        u_price = safe_float(row.get('UnitPrice', 0))
+        rem = clean_str(row.get('Remarks', ''))
+        
+        if pno or iname or desc:
+            new_rows.append({
+                "PartNo": pno,
+                "ItemName": iname,
+                "Description": desc,
+                "Supplier": supplier_name,
+                "BuyPrice": 0.0,
+                "ListPrice": u_price,
+                "Currency": currency,
+                "Remarks": rem
+            })
+            
+    if new_rows:
+        new_df = pd.DataFrame(new_rows)
+        combined = pd.concat([master_df, new_df], ignore_index=True)
+        clean_df(ensure_cols(combined, item_master_cols)).to_csv(ITEM_MASTER_FILE, index=False)
+        return len(new_rows)
+    return 0
+
 def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     combined = pd.concat([existing_db, new_data_df], ignore_index=True)
@@ -1175,6 +1207,17 @@ if menu == "자사 서류 생성":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
+    # 서류 대장 및 히스토리에서 동적 드롭다운 옵션 추출 (유기적 데이터 연동)
+    our_ledger = safe_read_csv(OUR_DB_FILE, doc_db_cols)
+    cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
+    history = load_history()
+
+    db_to_options = sorted(list(set([x for x in (our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history["to_list"]) if str(x).strip() and str(x) != "-"])))
+    db_ship_options = sorted(list(set([x for x in (our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history["ships"]) if str(x).strip() and str(x) != "-"])))
+    db_attn_options = sorted(list(set([x for x in history["attns"] if str(x).strip() and str(x) != "-"])))
+    db_our_ref_options = sorted(list(set([x for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x) != "-"])))
+    db_your_ref_options = sorted(list(set([x for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x) != "-"])))
+
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         
@@ -1185,7 +1228,6 @@ if menu == "자사 서류 생성":
 
         issuer_check = (issuer_comp + " " + issuer_pic).lower()
         is_our_company_issuer = any(kw in issuer_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in issuer_check)
-        
         current_logged_user = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
 
         if not is_our_company_issuer and issuer_comp:
@@ -1262,8 +1304,6 @@ if menu == "자사 서류 생성":
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
             st.rerun()
-
-        history = load_history()
         
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
@@ -1271,10 +1311,10 @@ if menu == "자사 서류 생성":
             
             with col_hdr_l:
                 st.markdown("**[상대방 정보 / Recipient]**")
-                to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
-                attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
-                your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), [], "your_ref")
-                ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
+                to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), db_to_options, "to")
+                attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), db_attn_options, "attn")
+                your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), db_your_ref_options, "your_ref")
+                ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), db_ship_options, "ship")
 
                 curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
                 fc_parts = curr_fc.split("/", 1) if "/" in curr_fc else [curr_fc, ""]
@@ -1287,7 +1327,7 @@ if menu == "자사 서류 생성":
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
                 date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [datetime.now().strftime("%Y-%m-%d")], "date")
-                our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), [], "our_ref")
+                our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance"], "payment_due")
 
@@ -1298,6 +1338,33 @@ if menu == "자사 서류 생성":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
+            # 자재 단가 마스터 DB에서 품목 불러오기 헬퍼 (유기적 데이터 연동)
+            item_master_data = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
+            if not item_master_data.empty:
+                item_options = ["-- 자재 단가 마스터 DB에서 품목 선택하여 자동 입력 --"] + [
+                    f"[{row['PartNo'] or 'No PartNo'}] {row['ItemName']} | ListPrice: {row['ListPrice']} {row['Currency']} ({row['Supplier']})"
+                    for _, row in item_master_data.iterrows()
+                ]
+                selected_master_item = st.selectbox("🔍 자재 단가 마스터 DB 품목 불러오기", options=item_options, key="quick_load_item_master")
+                if selected_master_item and selected_master_item != item_options[0]:
+                    selected_idx = item_options.index(selected_master_item) - 1
+                    target_item_row = item_master_data.iloc[selected_idx]
+                    
+                    new_item_row = {
+                        "PartNo": target_item_row.get("PartNo", ""),
+                        "ItemName": target_item_row.get("ItemName", ""),
+                        "Description": target_item_row.get("Description", ""),
+                        "Qty": "1",
+                        "UnitPrice": str(target_item_row.get("ListPrice", "")),
+                        "Amount": str(target_item_row.get("ListPrice", "")),
+                        "Remarks": target_item_row.get("Remarks", "")
+                    }
+                    curr_items = clean_df(st.session_state['doc_items'].copy())
+                    updated_items = pd.concat([curr_items, pd.DataFrame([new_item_row])], ignore_index=True)
+                    st.session_state['doc_items'] = clean_df(updated_items)
+                    st.success(f"✅ '{target_item_row.get('ItemName')}' 품목이 입력 표에 추가되었습니다.")
+                    st.rerun()
+
             df_current = clean_df(st.session_state['doc_items'].copy())
             cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             for c in cols_order:
@@ -1330,16 +1397,34 @@ if menu == "자사 서류 생성":
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
 
+            # DB 저장 및 등록 섹션 (이원화 버튼 제공)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
-            if st.button(t("btn_register"), type="secondary", disabled=is_running):
-                if reg_pwd != SAVE_PASSWORD:
-                    st.error(t("pwd_err"))
-                else:
-                    save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
-                    save_history(ship_name, to_name, attn_name)
-                    st.success(t("reg_success"))
+            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
+            with btn_col1:
+                if st.button("📥 서류 대장에 헤더 등록", key="btn_reg_header_only", disabled=is_running):
+                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_history(ship_name, to_name, attn_name)
+                        st.success("🎉 자사 서류 대장에 헤더가 성공적으로 등록되었습니다.")
+            
+            with btn_col2:
+                if st.button("📦 자재 마스터 DB에 품목 등록", key="btn_reg_items_only", disabled=is_running):
+                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
+                        st.success(f"🎉 자재 단가 마스터 DB에 총 {count}개 품목이 등록되었습니다.")
+
+            with btn_col3:
+                if st.button("🚀 헤더 & 품목 일괄 등록", key="btn_reg_all_batch", disabled=is_running):
+                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_history(ship_name, to_name, attn_name)
+                        count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
+                        st.success(f"🎉 서류 대장 및 자재 마스터({count}건) 일괄 등록 완료!")
 
     with right_col:
         with st.container(border=True):
