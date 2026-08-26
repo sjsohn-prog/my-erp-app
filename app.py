@@ -1207,7 +1207,7 @@ if menu == "서류 분석 / 생성 Master":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    # 서류 대장 및 히스토리에서 동적 드롭다운 옵션 추출 (유기적 데이터 연동)
+    # 서류 대장 및 히스토리에서 동적 드롭다운 옵션 추출
     our_ledger = safe_read_csv(OUR_DB_FILE, doc_db_cols)
     cust_ledger = safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols)
     history = load_history()
@@ -1338,7 +1338,7 @@ if menu == "서류 분석 / 생성 Master":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            # 자재 단가 마스터 DB에서 품목 불러오기 헬퍼 (유기적 데이터 연동)
+            # 자재 단가 마스터 DB에서 품목 불러오기 헬퍼
             item_master_data = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
             if not item_master_data.empty:
                 item_options = ["-- 자재 단가 마스터 DB에서 품목 선택하여 자동 입력 --"] + [
@@ -1397,27 +1397,12 @@ if menu == "서류 분석 / 생성 Master":
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, key="txt_bottom_remarks")
             st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
 
-            # DB 저장 및 등록 섹션 (균등 비율 1:1:1 이원화 버튼)
+            # DB 저장 및 등록 섹션 (순서 변경 적용: 1.일괄등록, 2.헤더등록, 3.품목등록)
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
             btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
             with btn_col1:
-                if st.button("📥 서류 대장에 헤더 등록", key="btn_reg_header_only", disabled=is_running):
-                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                    else:
-                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
-                        save_history(ship_name, to_name, attn_name)
-                        st.success("🎉 자사 서류 대장에 헤더가 성공적으로 등록되었습니다.")
-            
-            with btn_col2:
-                if st.button("📦 자재 마스터 DB에 품목 등록", key="btn_reg_items_only", disabled=is_running):
-                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                    else:
-                        count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
-                        st.success(f"🎉 자재 단가 마스터 DB에 총 {count}개 품목이 등록되었습니다.")
-
-            with btn_col3:
                 if st.button("🚀 헤더 & 품목 일괄 등록", key="btn_reg_all_batch", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
@@ -1425,6 +1410,21 @@ if menu == "서류 분석 / 생성 Master":
                         save_history(ship_name, to_name, attn_name)
                         count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
                         st.success(f"🎉 서류 대장 및 자재 마스터({count}건) 일괄 등록 완료!")
+
+            with btn_col2:
+                if st.button("📥 서류 대장에 헤더 등록", key="btn_reg_header_only", disabled=is_running):
+                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_history(ship_name, to_name, attn_name)
+                        st.success("🎉 자사 서류 대장에 헤더가 성공적으로 등록되었습니다.")
+            
+            with btn_col3:
+                if st.button("📦 자재 마스터 DB에 품목 등록", key="btn_reg_items_only", disabled=is_running):
+                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        count = save_items_to_master(edited_df, supplier_name="자사 서류 생성", currency=curr_currency)
+                        st.success(f"🎉 자재 단가 마스터 DB에 총 {count}개 품목이 등록되었습니다.")
 
     with right_col:
         with st.container(border=True):
@@ -1462,11 +1462,19 @@ elif menu == "서류 관리 대장":
         db_df = ensure_cols(db_df, doc_db_cols)
         db_df = clean_df(db_df)
         
-        # StreamlitAPIException 형변환 치유: 숫자형 컬럼 명시적 캐스팅
+        # StreamlitAPIException 형변환 치유: 숫자형 컬럼 및 옵션 값 정제
         db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
         db_df["ItemCount"] = pd.to_numeric(db_df["ItemCount"], errors='coerce').fillna(0).astype(int)
 
-        # Status 현황판 (파이프라인 복원)
+        doc_type_opts = ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note", "-"]
+        db_df["DocType"] = db_df["DocType"].apply(lambda x: x if x in doc_type_opts else "Quotation")
+
+        curr_opts = CURRENCY_OPTIONS + ["-"]
+        db_df["Currency"] = db_df["Currency"].apply(lambda x: x if x in curr_opts else "KRW")
+
+        db_df["Status"] = db_df["Status"].apply(lambda x: x if x in STATUS_OPTIONS else "🟡 Quoted")
+
+        # Status 현황판 (복원)
         status_counts = db_df["Status"].value_counts()
         c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
         c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
@@ -1502,12 +1510,12 @@ elif menu == "서류 관리 대장":
             ledger_config = {
                 "IssueDate": st.column_config.TextColumn("Issue Date"),
                 "DocDate": st.column_config.TextColumn("Doc Date"),
-                "DocType": st.column_config.SelectboxColumn("Doc Type", options=["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]),
+                "DocType": st.column_config.SelectboxColumn("Doc Type", options=doc_type_opts),
                 "OurRef": st.column_config.TextColumn("Our Ref"),
                 "YourRef": st.column_config.TextColumn("Your Ref"),
                 "ShipName": st.column_config.TextColumn("Ship Name"),
                 "TargetName": st.column_config.TextColumn("Target Name"),
-                "Currency": st.column_config.SelectboxColumn("Currency", options=CURRENCY_OPTIONS),
+                "Currency": st.column_config.SelectboxColumn("Currency", options=curr_opts),
                 "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f"),
                 "ItemCount": st.column_config.NumberColumn("Item Count"),
                 "CreatedBy": st.column_config.TextColumn("Created By"),
@@ -1598,9 +1606,12 @@ elif menu == "자재 단가 마스터 DB":
     item_df = ensure_cols(item_df, item_master_cols)
     item_df = clean_df(item_df)
 
-    # StreamlitAPIException 형변환 치유: 숫자형 컬럼 명시적 캐스팅
+    # StreamlitAPIException 형변환 치유
     item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
     item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+    
+    curr_opts = CURRENCY_OPTIONS + ["-"]
+    item_df["Currency"] = item_df["Currency"].apply(lambda x: x if x in curr_opts else "KRW")
 
     with st.container(border=True):
         if not item_df.empty:
@@ -1632,7 +1643,7 @@ elif menu == "자재 단가 마스터 DB":
                 "Supplier": st.column_config.TextColumn("공급사 (Supplier)"),
                 "BuyPrice": st.column_config.NumberColumn("매입가 (Buy Price)", format="%,.2f"),
                 "ListPrice": st.column_config.NumberColumn("매출가 (List Price)", format="%,.2f"),
-                "Currency": st.column_config.SelectboxColumn("통화", options=CURRENCY_OPTIONS),
+                "Currency": st.column_config.SelectboxColumn("통화", options=curr_opts),
                 "Remarks": st.column_config.TextColumn("Remarks"),
             }
 
