@@ -22,19 +22,19 @@ ADMIN_PASSWORD = "admin0915"
 SAVE_PASSWORD = "0915"
 DEFAULT_GEMINI_KEY = ""
 
-# ⭐ FLAG, Class, Currency 드롭다운 옵션 및 톤다운 선택지 세팅
+# ⭐ "Choose an option" 제거 및 표준 옵션 구성
 FLAG_OPTIONS = [
-    "Choose an option", "Panama", "Liberia", "Marshall Islands", "Hong Kong", 
-    "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
+    "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", 
+    "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
 ]
 
 CLASS_OPTIONS = [
-    "Choose an option", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
+    "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
 ]
 
 CURRENCY_OPTIONS = [
-    "Choose an option", "KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"
+    "KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"
 ]
 
 def get_secret(key, default=""):
@@ -240,13 +240,13 @@ custom_css = """
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
     }
 
-    /* ⭐ 드롭다운 (Selectbox) 은은하고 톤다운된 UI 스타일링 */
+    /* ⭐ 드롭다운 및 입력창 글자 색상 톤다운 커스텀 */
+    div[data-baseweb="select"] div, div[data-baseweb="input"] input {
+        color: #CBD5E1 !important;
+        font-weight: 500 !important;
+    }
     div[data-baseweb="select"] {
         border-radius: 8px !important;
-    }
-    div[data-baseweb="select"] span {
-        color: var(--text-color) !important;
-        font-weight: 500 !important;
     }
 
     .stButton > button, .google-btn { 
@@ -590,6 +590,31 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
 
+# ⭐ 단일 통합 드롭다운 헬퍼 함수 (중복 필드 제거 & 직접 입력 지원)
+def render_unified_input(label, current_val, history_options, key_prefix):
+    curr = clean_str(current_val)
+    options = []
+    if curr:
+        options.append(curr)
+    for item in history_options:
+        s_item = clean_str(item)
+        if s_item and s_item not in options:
+            options.append(s_item)
+            
+    direct_label = "✏️ 직접 입력 / Direct Input"
+    options.append(direct_label)
+    
+    sel_key = f"{key_prefix}_sel"
+    txt_key = f"{key_prefix}_txt"
+    
+    selected = st.selectbox(label, options=options, index=0, key=sel_key)
+    
+    if selected == direct_label:
+        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", value="", key=txt_key)
+        return val
+    else:
+        return selected
+
 # ==========================================
 # 4. AI 파싱 엔진 (Gemini 3.6 Flash 모델 고정)
 # ==========================================
@@ -763,7 +788,6 @@ if menu == "서류 통합 생성":
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
         
         if is_incoming_to_us:
-            # 수신자가 원솔루션인 경우 (상대방이 당사로 보낸 문서 분석 시):
             to_field_val = issuer_comp or recip_comp
             attn_field_val = issuer_pic
             pic_field_val = recip_attn if recip_attn else st.session_state.get('user_email', '')
@@ -840,11 +864,9 @@ if menu == "서류 통합 생성":
         st.markdown('<div class="erp-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
         
-        sel_to = st.selectbox("To", options=[""] + history["to_list"])
-        to_name = st.text_input("To", value=st.session_state['doc_info']["to"] if not sel_to else sel_to)
-        
-        sel_attn = st.selectbox("Attention", options=[""] + history["attns"])
-        attn_name = st.text_input("Attention", value=st.session_state['doc_info']["attn"] if not sel_attn else sel_attn)
+        # ⭐ To, Attention: 중복 없는 단일 통합 위젯 적용
+        to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
+        attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
         
         project_title = st.text_input("Project Title", value=st.session_state['doc_info'].get("project_title", ""))
         our_ref = st.text_input("Our Ref. No.", value=st.session_state['doc_info'].get("our_ref", ""))
@@ -854,28 +876,37 @@ if menu == "서류 통합 생성":
         payment_due = st.text_input("Payment Due", value=st.session_state['doc_info'].get("payment_due", ""))
         pic_name = st.text_input("PIC", value=st.session_state['doc_info'].get("pic", st.session_state.get('user_email', '')))
         
-        sel_ship = st.selectbox("Ship's Name", options=[""] + history["ships"])
-        ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
+        # ⭐ Ship's Name: 히스토리 연동 단일 통합 위젯 적용
+        ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
 
-        # ⭐ FLAG 및 Class 선택 드롭다운 "Choose an option" 통일 적용
-        col_fc1, col_fc2 = st.columns(2)
-        with col_fc1: sel_flag = st.selectbox("Flag", FLAG_OPTIONS)
-        with col_fc2: sel_class = st.selectbox("Class", CLASS_OPTIONS)
-            
+        # ⭐ Flag & Class: 파싱된 값 기본 노출 + 드롭다운 + 직접 입력 지원 단일 위젯
         curr_fc = st.session_state['doc_info'].get("flag_class", "")
-        if sel_flag != "Choose an option" or sel_class != "Choose an option":
-            flag_part = sel_flag if sel_flag != "Choose an option" else ""
-            class_part = sel_class if sel_class != "Choose an option" else ""
-            auto_fc = f"{flag_part} / {class_part}".strip(" /")
-        else: auto_fc = curr_fc
+        if "/" in curr_fc:
+            fc_parts = curr_fc.split("/", 1)
+            curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
+        else:
+            curr_flag, curr_class = curr_fc.strip(), ""
 
-        flag_class = st.text_input("Flag / Class", value=auto_fc)
+        col_fc1, col_fc2 = st.columns(2)
+        with col_fc1:
+            sel_flag = render_unified_input("Flag", curr_flag, FLAG_OPTIONS, "flag")
+        with col_fc2:
+            sel_class = render_unified_input("Class", curr_class, CLASS_OPTIONS, "class")
+            
+        f_str = sel_flag if sel_flag and "Direct Input" not in sel_flag and "직접 입력" not in sel_flag else ""
+        c_str = sel_class if sel_class and "Direct Input" not in sel_class and "직접 입력" not in sel_class else ""
+        
+        if f_str and c_str:
+            flag_class = f"{f_str} / {c_str}"
+        elif f_str:
+            flag_class = f_str
+        else:
+            flag_class = c_str
 
-        # ⭐ 통화 선택 옵션 확장 및 Choose an option 톤다운 선택
+        # Currency 선택
         curr_val = st.session_state['doc_info'].get("currency", "KRW")
-        curr_index = CURRENCY_OPTIONS.index(curr_val) if curr_val in CURRENCY_OPTIONS else 1
+        curr_index = CURRENCY_OPTIONS.index(curr_val) if curr_val in CURRENCY_OPTIONS else 0
         currency = st.selectbox("Currency", CURRENCY_OPTIONS, index=curr_index)
-        if currency == "Choose an option": currency = "KRW"
 
         st.markdown(f'<div class="section-title" style="margin-top:16px;">{t("items_title")}</div>', unsafe_allow_html=True)
         
