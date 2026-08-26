@@ -454,20 +454,16 @@ def clean_df(df):
     if df is None or df.empty: return df
     df = df.copy().fillna("")
     for col in df.columns:
-        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0"], "")
+        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0", "nan.0"], "")
     return df
 
 def prepare_items_for_pdf(items_list):
     formatted_items = []
     for item in items_list:
         item_copy = dict(item)
-        iname = str(item_copy.get('ItemName', '')).strip()
-        desc = str(item_copy.get('Description', '')).strip()
-        rem = str(item_copy.get('Remarks', '')).strip()
-        
-        if iname.lower() in ['nan', 'none', 'null', '<na>']: iname = ""
-        if desc.lower() in ['nan', 'none', 'null', '<na>']: desc = ""
-        if rem.lower() in ['nan', 'none', 'null', '<na>']: rem = ""
+        iname = clean_str(item_copy.get('ItemName', ''))
+        desc = clean_str(item_copy.get('Description', ''))
+        rem = clean_str(item_copy.get('Remarks', ''))
         
         item_copy['ItemName'] = iname
         item_copy['Description'] = desc
@@ -560,11 +556,9 @@ def safe_merge_db(existing_db, new_data_df):
     res = combined[has_pno | has_item | has_desc].drop_duplicates(subset=['PartNo', 'ItemName', 'Description'], keep='last')
     return clean_df(res)
 
-# ⭐ 초기값은 전면 빈칸("")으로 세팅
 if 'doc_info' not in st.session_state:
     st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
-# ⭐ Qty 기본값 0 세팅
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
 
@@ -596,7 +590,7 @@ def render_pdf_images(pdf_bytes):
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
     s = str(val).strip()
-    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0'] else s
+    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
 # ⭐ 기본 0번째 옵션은 항상 빈칸("")으로 노출되는 단일 통합 드롭다운 헬퍼 함수
 def render_unified_input(label, current_val, base_options, key_prefix):
@@ -608,7 +602,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         
     for item in base_options:
         s_item = clean_str(item)
-        if s_item and s_item not in options and "Direct Input" not in s_item and "직접 입력" not in s_item:
+        if s_item and s_item not in options and "Direct Input" not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
             options.append(s_item)
             
     direct_label = "✏️ 직접 입력 / Direct Input"
@@ -617,11 +611,18 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     sel_key = f"{key_prefix}_sel"
     txt_key = f"{key_prefix}_txt"
     
-    idx = options.index(curr) if curr in options else 0
-    selected = st.selectbox(label, options=options, index=idx, key=sel_key)
+    # 세션에 해당 위젯 상태가 없으면 초기 세팅
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = curr if curr in options else ""
+        
+    # 만약 AI 분석으로 curr 값이 업데이트 되었다면, selectbox가 해당 값을 가리키도록 유연하게 연동
+    if curr and curr in options and st.session_state.get(sel_key) != curr and st.session_state.get(sel_key) != direct_label:
+        st.session_state[sel_key] = curr
+
+    selected = st.selectbox(label, options=options, key=sel_key)
     
     if selected == direct_label:
-        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", value="", key=txt_key)
+        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
         return val
     else:
         return selected
@@ -790,10 +791,10 @@ if menu == "서류 통합 생성":
         ai_data = task['result']['ai_data']
         
         # 수신자/발행자 입체 교대 검증
-        recip_comp = ai_data.get("recipient_company", "") or ai_data.get("to_name", "")
-        recip_attn = ai_data.get("recipient_attn", "") or ai_data.get("attn_name", "")
-        issuer_comp = ai_data.get("issuer_company", "")
-        issuer_pic = ai_data.get("issuer_pic", "") or ai_data.get("pic", "")
+        recip_comp = clean_str(ai_data.get("recipient_company", "")) or clean_str(ai_data.get("to_name", ""))
+        recip_attn = clean_str(ai_data.get("recipient_attn", "")) or clean_str(ai_data.get("attn_name", ""))
+        issuer_comp = clean_str(ai_data.get("issuer_company", ""))
+        issuer_pic = clean_str(ai_data.get("issuer_pic", "")) or clean_str(ai_data.get("pic", ""))
 
         recipient_check = (recip_comp + " " + recip_attn).lower()
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
@@ -802,30 +803,60 @@ if menu == "서류 통합 생성":
             to_field_val = issuer_comp or recip_comp
             attn_field_val = issuer_pic
             pic_field_val = recip_attn if recip_attn else st.session_state.get('user_email', '')
-            your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "")
+            your_ref_val = clean_str(ai_data.get("our_ref", "")) or clean_str(ai_data.get("your_ref", ""))
             our_ref_val = ""
         else:
             to_field_val = recip_comp
             attn_field_val = recip_attn
             pic_field_val = issuer_pic if issuer_pic else st.session_state.get('user_email', '')
-            your_ref_val = ai_data.get("your_ref", "")
-            our_ref_val = ai_data.get("our_ref", "")
+            your_ref_val = clean_str(ai_data.get("your_ref", ""))
+            our_ref_val = clean_str(ai_data.get("our_ref", ""))
+
+        project_val = clean_str(ai_data.get("project_title", ""))
+        validity_val = clean_str(ai_data.get("validity", ""))
+        flag_class_val = clean_str(ai_data.get("flag_class", ""))
+        date_val = clean_str(ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")))
+        ship_val = clean_str(ai_data.get("ship_name", ""))
+        payment_due_val = clean_str(ai_data.get("payment_due", ""))
+        currency_val = clean_str(ai_data.get("currency", "KRW"))
 
         st.session_state['doc_info'] = {
             "to": to_field_val, 
             "attn": attn_field_val, 
-            "project_title": ai_data.get("project_title", ""),
-            "validity": ai_data.get("validity", ""), 
-            "flag_class": ai_data.get("flag_class", ""), 
+            "project_title": project_val,
+            "validity": validity_val, 
+            "flag_class": flag_class_val, 
             "our_ref": our_ref_val,
-            "date": ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")), 
+            "date": date_val, 
             "pic": pic_field_val, 
             "your_ref": your_ref_val, 
-            "ship": ai_data.get("ship_name", ""), 
-            "payment_due": ai_data.get("payment_due", ""),
-            "currency": ai_data.get("currency", "KRW"), 
+            "ship": ship_val, 
+            "payment_due": payment_due_val,
+            "currency": currency_val, 
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
+
+        # ⭐ 위젯 세션 키에 직접 AI 분석 결과 반영 (화면에 바로 선택 활성화)
+        st.session_state['to_sel'] = to_field_val
+        st.session_state['attn_sel'] = attn_field_val
+        st.session_state['project_title_sel'] = project_val
+        st.session_state['our_ref_sel'] = our_ref_val
+        st.session_state['your_ref_sel'] = your_ref_val
+        st.session_state['date_sel'] = date_val
+        st.session_state['validity_sel'] = validity_val
+        st.session_state['payment_due_sel'] = payment_due_val
+        st.session_state['pic_sel'] = pic_field_val
+        st.session_state['ship_sel'] = ship_val
+
+        if "/" in flag_class_val:
+            fc_parts = flag_class_val.split("/", 1)
+            st.session_state['flag_sel'] = fc_parts[0].strip()
+            st.session_state['class_sel'] = fc_parts[1].strip()
+        else:
+            st.session_state['flag_sel'] = flag_class_val
+            st.session_state['class_sel'] = ""
+
+        st.session_state['currency_sel'] = currency_val
         
         parsed_items = ai_data.get("items", [])
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
@@ -836,7 +867,11 @@ if menu == "서류 통합 생성":
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
             for idx, row in items_df.iterrows():
-                pno, iname, desc = str(row.get('PartNo', '')), str(row.get('ItemName', '')), str(row.get('Description', ''))
+                pno, iname, desc = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', ''))
+                items_df.at[idx, 'PartNo'] = pno
+                items_df.at[idx, 'ItemName'] = iname
+                items_df.at[idx, 'Description'] = desc
+                
                 match = pd.DataFrame()
                 if not db.empty:
                     if pno and 'PartNo' in db.columns: match = db[db['PartNo'] == pno]
@@ -845,9 +880,9 @@ if menu == "서류 통합 생성":
                 if not match.empty:
                     m = match.iloc[0]
                     if float(row.get('UnitPrice', 0.0)) == 0.0: items_df.at[idx, 'UnitPrice'] = float(m.get('UnitPrice', 0.0))
-                    if not pno: items_df.at[idx, 'PartNo'] = str(m.get('PartNo', ''))
-                    if not iname: items_df.at[idx, 'ItemName'] = str(m.get('ItemName', ''))
-                    if not desc: items_df.at[idx, 'Description'] = str(m.get('Description', ''))
+                    if not pno: items_df.at[idx, 'PartNo'] = clean_str(m.get('PartNo', ''))
+                    if not iname: items_df.at[idx, 'ItemName'] = clean_str(m.get('ItemName', ''))
+                    if not desc: items_df.at[idx, 'Description'] = clean_str(m.get('Description', ''))
                 if float(row.get('Amount', 0.0)) == 0.0:
                     items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
             st.session_state['doc_items'] = clean_df(items_df)
@@ -866,9 +901,15 @@ if menu == "서류 통합 생성":
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
                 st.rerun()
 
+        # ⭐ 초기화 시 모든 필드를 깨끗한 빈칸("")으로 동기화 초기화
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
+            
+            for key_prefix in ["to", "attn", "project_title", "our_ref", "your_ref", "date", "validity", "payment_due", "pic", "ship", "flag", "class", "currency"]:
+                st.session_state[f"{key_prefix}_sel"] = ""
+                if f"{key_prefix}_txt" in st.session_state:
+                    st.session_state[f"{key_prefix}_txt"] = ""
             st.rerun()
 
         history = load_history()
@@ -889,8 +930,8 @@ if menu == "서류 통합 생성":
             pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')] if st.session_state.get('user_email') else [], "pic")
             ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
 
-            # Flag & Class: 파싱/입력값 통합 드롭다운
-            curr_fc = st.session_state['doc_info'].get("flag_class", "")
+            # Flag & Class 파싱/입력값 통합 드롭다운
+            curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
             if "/" in curr_fc:
                 fc_parts = curr_fc.split("/", 1)
                 curr_flag, curr_class = fc_parts[0].strip(), fc_parts[1].strip()
@@ -994,7 +1035,7 @@ if menu == "서류 통합 생성":
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user))
 
-    # ⭐ 우측 PDF 미리보기 파란색 카드 내 고정
+    # ⭐ 우측 PDF 미리보기 파란색 카드 내 고정 및 실시간 동기화
     with right_col:
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
