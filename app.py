@@ -657,20 +657,21 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
+# ⭐ [오류 수정 완료] 환율 및 선택 옵션 원복 방지 처리된 통합 드롭다운 헬퍼 함수
 def render_unified_input(label, current_val, base_options, key_prefix):
     display_label = f"▾ {label}" if not label.startswith("▾") else label
     curr = clean_str(current_val)
-    options = [""]
+    direct_label = "✏️ 직접 입력 / Direct Input"
     
-    if curr and curr not in options and "Direct Input" not in curr and "직접 입력" not in curr:
+    options = [""]
+    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
         options.append(curr)
         
     for item in base_options:
         s_item = clean_str(item)
-        if s_item and s_item not in options and "Direct Input" not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
+        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
             options.append(s_item)
             
-    direct_label = "✏️ 직접 입력 / Direct Input"
     options.append(direct_label)
     
     sel_key = f"{key_prefix}_sel"
@@ -678,9 +679,8 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     
     if sel_key not in st.session_state:
         st.session_state[sel_key] = curr if curr in options else ""
-        
-    if curr and curr in options and st.session_state.get(sel_key) != curr and st.session_state.get(sel_key) != direct_label:
-        st.session_state[sel_key] = curr
+    elif st.session_state[sel_key] not in options:
+        options.insert(1, st.session_state[sel_key])
 
     selected = st.selectbox(display_label, options=options, key=sel_key)
     
@@ -1152,7 +1152,6 @@ if menu == "서류 통합 생성":
 
             edited_df = st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True)
 
-            # ⭐ 수치 타입 안전 변환을 통해 TypeError 사전 방지
             edited_df['UnitPrice'] = edited_df['UnitPrice'].apply(safe_float)
             edited_df['Amount'] = edited_df['Amount'].apply(safe_float)
 
@@ -1287,14 +1286,18 @@ if menu == "서류 통합 생성":
                 if 'generated_email_body' in st.session_state:
                     email_body_text = st.text_area("메일 본문 (수정 가능)", value=st.session_state['generated_email_body'], height=220)
                     
-                    enc_to = urllib.parse.quote(email_to)
-                    enc_cc = urllib.parse.quote(email_cc)
-                    enc_subj = urllib.parse.quote(email_subject)
-                    enc_body = urllib.parse.quote(email_body_text)
-                    
-                    mailto_url = f"mailto:{enc_to}?cc={enc_cc}&subject={enc_subj}&body={enc_body}"
-                    
-                    st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
+                    # ⭐ 수신인 필수 입력 안전 검증 조건문
+                    if not email_to.strip():
+                        st.warning("⚠️ 수신인 이메일(To)을 입력해야 메일 앱으로 전송할 수 있습니다.")
+                    else:
+                        enc_to = urllib.parse.quote(email_to.strip())
+                        enc_cc = urllib.parse.quote(email_cc.strip())
+                        enc_subj = urllib.parse.quote(email_subject.strip())
+                        enc_body = urllib.parse.quote(email_body_text.strip())
+                        
+                        mailto_url = f"mailto:{enc_to}?cc={enc_cc}&subject={enc_subj}&body={enc_body}"
+                        
+                        st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
 # 7. 서류 관리대장 (영업 파이프라인 관리)
