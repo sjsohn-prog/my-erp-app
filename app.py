@@ -51,7 +51,7 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 9번 & 10번 요구사항: 서류 관리대장 및 마스터 DB 열 순서 동일화 (Status 맨 뒤, OurRef 4번째)
+# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
 ledger_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
@@ -160,7 +160,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         return selected
 
 # ==========================================
-# 0-2. i18n 다국어 사전 (11번: menu_history -> 서류이력)
+# 0-2. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -394,7 +394,7 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 12번 요구사항: 상단 우측 위치 KR / EN 언어 선택 스위치
+# 12번 요구사항: 상단 우측 위치 KR / EN 언어 스위치
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
@@ -454,7 +454,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (4번 핵심: image_2e1e21.png 디자인으로 좌/우 배치 & 100% 가로폭 구분선 매 페이지 상단 고정!)
+# (상단 굵은줄 2.5px 바로 밑에 헤더표 밀착 & 헤더표 테두리 1.2px)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -464,11 +464,10 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     
-    /* 5번: 페이지 번호 1/5 형식, 6번: 전체 맑은 고딕 폰트 적용 */
     @page { 
         size: A4; 
-        margin-top: 26mm; 
-        margin-bottom: 15mm;
+        margin-top: 22mm; 
+        margin-bottom: 12mm;
         margin-left: 8mm;
         margin-right: 8mm;
         @bottom-center {
@@ -479,15 +478,15 @@ INLINE_HTML_TEMPLATE = """
 
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
     
-    /* 4번 핵심: position: fixed로 매 페이지 최상단에 image_2e1e21.png 헤더 완벽 고정 */
+    /* 매 페이지 최상단 고정 헤더 */
     div.header-repeat {
         position: fixed;
-        top: -20mm;
+        top: -16mm;
         left: 0;
         right: 0;
         width: 100%;
         border-bottom: 2.5px solid #000;
-        padding-bottom: 3px;
+        padding-bottom: 2px;
     }
     
     .header-table {
@@ -511,7 +510,20 @@ INLINE_HTML_TEMPLATE = """
         text-decoration: underline;
     }
 
-    /* 7번: 표 테두리선 0.6px 슬림화 */
+    /* 헤더 정보 표: 상단 구분선에 바짝 밀착되며, 본문보다 굵은 1.2px 테두리 */
+    table.hdr-table { 
+        width: 100%; 
+        border-collapse: collapse; 
+        margin-top: 0px; 
+        margin-bottom: 3px; 
+    }
+    table.hdr-table th, table.hdr-table td { 
+        border: 1.2px solid #000 !important; 
+        padding: 3px 5px; 
+        vertical-align: middle; 
+    }
+
+    /* 품목 및 내역 표: 슬림한 0.6px 테두리 */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; }
     table.data-table th, table.data-table td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
@@ -519,27 +531,24 @@ INLINE_HTML_TEMPLATE = """
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     
-    /* 2번: Unit Price & Amount 헤더 및 데이터 우측 정렬 */
     .col-no { width: 5%; text-align: center; }
     .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
     .col-qty { width: 8%; text-align: center; }
     .col-price { width: 16%; text-align: right !important; }
     .col-amt { width: 16%; text-align: right !important; }
     
-    /* 3번: 하단 박스 공백 축소 */
     .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; }
     .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
 
-    <!-- 4번: image_2e1e21.png와 100% 일치하는 매 페이지 반복 고정 헤더 -->
     <div class="header-repeat">
         <table class="header-table">
             <tr>
                 <td style="text-align: left; width: 50%;">
                     {% if logo_base64 %}
-                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 42px;" />
+                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 40px;" />
                     {% else %}
                     <span style="font-size: 16pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
                     {% endif %}
@@ -551,8 +560,8 @@ INLINE_HTML_TEMPLATE = """
         </table>
     </div>
 
-    <!-- 1번 요구사항: 좌측(상대방)/우측(우리) 및 하단 Project Title 완벽 배열 -->
-    <table class="data-table">
+    <!-- 헤더 정보 표 (테두리 1.2px) -->
+    <table class="hdr-table">
         <tr>
             <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
             <td class="hdr-label">PIC</td><td class="hdr-value">{{ pic }}</td>
@@ -622,7 +631,6 @@ INLINE_HTML_TEMPLATE = """
     <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 2px;">{{ vat_note }}</div>
     {% endif %}
 
-    <!-- 3번: 하단 박스 공백 축소 -->
     {% if terms_conditions %}
     <div class="remarks-box">
         <strong><em>[Terms & Conditions]</em></strong><br>
@@ -641,7 +649,7 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 필수 도구 (8번: 빈 행 제거 / 10번: KeyError 차단)
+# 3. 환경 및 데이터 정제 필수 도구
 # ==========================================
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
@@ -651,7 +659,6 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 8번 요구사항: 빈 행(No. 9 등) 완전 자동 제거
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -725,7 +732,6 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# 10번 KeyError 차단
 db_init = safe_read_csv(DB_FILE, db_cols)
 db_init = ensure_cols(db_init, db_cols)
 clean_df(db_init).to_csv(DB_FILE, index=False)
@@ -795,7 +801,7 @@ if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 # ==========================================
-# 4. AI 파싱 엔진
+# 4. AI 파싱 엔진 (필드 정밀 추출 프롬프트 정비)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
@@ -853,12 +859,16 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
            - "recipient_company": Name of the company to whom this doc is addressed (To).
            - "recipient_attn": Person Name specified in "Attention" / "Attn" of this document.
 
-        2. HEADER FIELDS EXTRACTION:
-           - "to_name", "attn_name", "project_title", "validity", "flag_class", "our_ref", "date_str", "pic", "your_ref", "ship_name", "payment_due".
+        2. HEADER FIELDS ACCURACY EXTRACTION:
+           - "date_str": Document Issue Date (e.g. "2015.06.24").
+           - "validity": Quotation Validity duration (e.g. "30 Days", "14 Days", "60 Days"). DO NOT put document date or random date here unless explicitly written as 'Valid until YYYY-MM-DD'.
+           - "our_ref": Reference Number / Quote No. / PO No. generated by the issuing company on the document.
+           - "your_ref": Customer's / Recipient's Reference Number mentioned in the document.
+           - "to_name", "attn_name", "project_title", "flag_class", "pic", "ship_name", "payment_due", "currency".
 
         3. ITEM TABLE EXTRACTION & GROUPING RULE:
            - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
-           - CRITICAL GROUPING RULE: When sub-items, breakdown fees, or charges belong to a main category or item, DO NOT split them into separate rows. Combine them into a single row's "Description" or "ItemName" using line breaks (\\n).
+           - Combine sub-items into single row's "Description" using line breaks (\\n).
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
@@ -1006,7 +1016,7 @@ elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성
+# 6. 서류 통합 생성 (수신/발신 역할 자동 반전 및 화면 세션 스태이트 연결 완벽 보장)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -1029,6 +1039,7 @@ if menu == "서류 통합 생성":
         recipient_check = (recip_comp + " " + recip_attn).lower()
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
         
+        # 외부 고객사/협력업체 문서가 원솔루션으로 들어온 경우 -> 상대방을 To/Attn으로 지정하고 PIC를 우리 담당자로 반전
         if is_incoming_to_us:
             to_field_val = issuer_comp or recip_comp
             attn_field_val = issuer_pic
@@ -1066,26 +1077,31 @@ if menu == "서류 통합 생성":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        st.session_state['to_sel'] = to_field_val
-        st.session_state['attn_sel'] = attn_field_val
-        st.session_state['project_title_sel'] = project_val
-        st.session_state['our_ref_sel'] = our_ref_val
-        st.session_state['your_ref_sel'] = your_ref_val
-        st.session_state['date_sel'] = date_val
-        st.session_state['validity_sel'] = validity_val
-        st.session_state['payment_due_sel'] = payment_due_val
-        st.session_state['pic_sel'] = pic_field_val
-        st.session_state['ship_sel'] = ship_val
+        # 화면 입력 위젯 세션 값 강제 업데이트
+        def set_widget_val(prefix, val):
+            st.session_state[f"{prefix}_sel"] = val
+            st.session_state[f"{prefix}_txt"] = val
+
+        set_widget_val('to', to_field_val)
+        set_widget_val('attn', attn_field_val)
+        set_widget_val('project_title', project_val)
+        set_widget_val('our_ref', our_ref_val)
+        set_widget_val('your_ref', your_ref_val)
+        set_widget_val('date', date_val)
+        set_widget_val('validity', validity_val)
+        set_widget_val('payment_due', payment_due_val)
+        set_widget_val('pic', pic_field_val)
+        set_widget_val('ship', ship_val)
 
         if "/" in flag_class_val:
             fc_parts = flag_class_val.split("/", 1)
-            st.session_state['flag_sel'] = fc_parts[0].strip()
-            st.session_state['class_sel'] = fc_parts[1].strip()
+            set_widget_val('flag', fc_parts[0].strip())
+            set_widget_val('class', fc_parts[1].strip())
         else:
-            st.session_state['flag_sel'] = flag_class_val
-            st.session_state['class_sel'] = ""
+            set_widget_val('flag', flag_class_val)
+            set_widget_val('class', '')
 
-        st.session_state['currency_sel'] = currency_val
+        set_widget_val('currency', currency_val)
         st.session_state['last_currency'] = currency_val
         
         parsed_items = ai_data.get("items", [])
@@ -1125,7 +1141,7 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
-        # 1번 요구사항: 입력 폼 좌/우 2컬럼 배치로 헤더 순서 완벽 일치
+        # 1번 요구사항: 입력 폼 좌/우 2컬럼 배치
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
@@ -1315,7 +1331,7 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            # 8번 요구사항: 빈 행 자동 제거된 렌더링 목록 준비
+            # 8번 요구사항: 빈 행 자동 제거
             pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
@@ -1331,7 +1347,6 @@ if menu == "서류 통합 생성":
             realtime_pdf_bytes = generate_pdf(preview_ctx)
             file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
             
-            # 11번 서류이력 조회를 위한 자동 저장
             pdf_save_path = os.path.join("output", file_n)
             with open(pdf_save_path, "wb") as f:
                 f.write(realtime_pdf_bytes)
@@ -1402,7 +1417,7 @@ if menu == "서류 통합 생성":
                         st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장 (9번 요구사항: OurRef 4번째, Status 맨 뒤)
+# 7. 서류 관리대장
 # ==========================================
 elif menu == "서류 관리대장":
     ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
@@ -1457,7 +1472,6 @@ elif menu == "서류 관리대장":
 
             st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
 
-            # 9번: OurRef가 4번째, Status가 마지막 열로 정렬된 열 설정
             ledger_config = {
                 "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
                 "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
@@ -1486,7 +1500,7 @@ elif menu == "서류 관리대장":
             st.info(t("no_ledger"))
 
 # ==========================================
-# 8. 마스터 DB 관리 (10번 요구사항: 서류 관리대장과 동일 레이아웃)
+# 8. 마스터 DB 관리
 # ==========================================
 elif menu == "마스터 DB 관리":
     db = safe_read_csv(DB_FILE, db_cols)
@@ -1554,7 +1568,7 @@ elif menu == "마스터 DB 관리":
                 st.rerun()
 
 # ==========================================
-# 9. 서류이력 (11번 요구사항: 제목 '서류이력' 및 바둑판식 갤러리 그리드 구현)
+# 9. 서류이력
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 바둑판식 카드 그리드로 조회하고 확대할 수 있습니다.</p></div>""", unsafe_allow_html=True)
