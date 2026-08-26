@@ -53,8 +53,7 @@ ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # DB 및 서류 관리대장 컬럼 정의 (Status 맨 뒤, OurRef 4번째)
 db_cols = [
-    "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
-    "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
+    "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"
 ]
 
 OUR_DB_FILE = "our_db.csv"
