@@ -52,7 +52,80 @@ REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
 # ==========================================
-# 0-1. i18n 다국어 사전
+# 0-1. 최상단 공통 헬퍼 함수 정의 (NameError 방지)
+# ==========================================
+def clean_str(val):
+    if pd.isna(val) or val is None: return ""
+    s = str(val).strip()
+    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
+
+def safe_float(val, default=0.0):
+    if val is None or pd.isna(val):
+        return default
+    s = str(val).replace(',', '').strip()
+    match = re.search(r"[-+]?\d*\.\d+|\d+", s)
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return default
+    return default
+
+def get_currency_symbol(code):
+    c = clean_str(code).upper()
+    symbols = {
+        "USD": "$", "KRW": "₩", "EUR": "€", "JPY": "¥",
+        "CNY": "¥", "SGD": "S$", "GBP": "£", "HKD": "HK$", "AED": "AED "
+    }
+    return symbols.get(c, f"{c} " if c else "")
+
+def safe_read_csv(filepath, default_cols=None):
+    if default_cols is None:
+        default_cols = []
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        return pd.DataFrame(columns=default_cols)
+    try:
+        df = pd.read_csv(filepath)
+        if df.empty:
+            return pd.DataFrame(columns=default_cols)
+        return df
+    except (pd.errors.EmptyDataError, Exception):
+        return pd.DataFrame(columns=default_cols)
+
+def render_unified_input(label, current_val, base_options, key_prefix):
+    display_label = f"▾ {label}" if not label.startswith("▾") else label
+    curr = clean_str(current_val)
+    direct_label = "✏️ 직접 입력 / Direct Input"
+    
+    options = [""]
+    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
+        options.append(curr)
+        
+    for item in base_options:
+        s_item = clean_str(item)
+        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
+            options.append(s_item)
+            
+    options.append(direct_label)
+    
+    sel_key = f"{key_prefix}_sel"
+    txt_key = f"{key_prefix}_txt"
+    
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = curr if curr in options else ""
+    elif st.session_state[sel_key] not in options:
+        options.insert(1, st.session_state[sel_key])
+
+    selected = st.selectbox(display_label, options=options, key=sel_key)
+    
+    if selected == direct_label:
+        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
+        return val
+    else:
+        return selected
+
+# ==========================================
+# 0-2. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -171,7 +244,7 @@ def t(key, **kwargs):
     return text
 
 # ==========================================
-# 0-2. 구글 OAuth 로그인 필수 함수
+# 0-3. 구글 OAuth 로그인 필수 함수
 # ==========================================
 def get_google_auth_url():
     params = {
@@ -517,58 +590,13 @@ INLINE_HTML_TEMPLATE = """
 """
 
 # ==========================================
-# 3. 환경 및 데이터 정제 필수 도구 (최상단 순서 보장)
+# 3. 환경 및 데이터 정제 필수 도구 (상단 안전 배치)
 # ==========================================
-# ⭐ [에러 완전 방지] 최상단 배치된 기본 텍스트 정제 및 유틸리티 함수들
-def clean_str(val):
-    if pd.isna(val) or val is None: return ""
-    s = str(val).strip()
-    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
-
-def render_unified_input(label, current_val, base_options, key_prefix):
-    display_label = f"▾ {label}" if not label.startswith("▾") else label
-    curr = clean_str(current_val)
-    direct_label = "✏️ 직접 입력 / Direct Input"
-    
-    options = [""]
-    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
-        options.append(curr)
-        
-    for item in base_options:
-        s_item = clean_str(item)
-        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
-            options.append(s_item)
-            
-    options.append(direct_label)
-    
-    sel_key = f"{key_prefix}_sel"
-    txt_key = f"{key_prefix}_txt"
-    
-    if sel_key not in st.session_state:
-        st.session_state[sel_key] = curr if curr in options else ""
-    elif st.session_state[sel_key] not in options:
-        options.insert(1, st.session_state[sel_key])
-
-    selected = st.selectbox(display_label, options=options, key=sel_key)
-    
-    if selected == direct_label:
-        val = st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
-        return val
-    else:
-        return selected
-
 KEY_FILE = "gemini_key.txt"
 DB_FILE = "master_db.csv"
 HISTORY_FILE = "master_history.json"
 LEDGER_FILE = "doc_ledger.csv"
 os.makedirs("output", exist_ok=True)
-
-def clean_df(df):
-    if df is None or df.empty: return df
-    df = df.copy().fillna("")
-    for col in df.columns:
-        df[col] = df[col].astype(str).replace(["nan", "NaN", "None", "null", "<NA>", "none", "None.0", "nan.0"], "")
-    return df
 
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
