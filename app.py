@@ -51,12 +51,14 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 관리대장 및 마스터 DB 열 레이아웃 (Status 맨 뒤, OurRef 4번째)
-ledger_cols = [
+# DB 및 서류 관리대장 컬럼 정의 (Status 맨 뒤, OurRef 4번째)
+db_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
-db_cols = ledger_cols
+
+OUR_DB_FILE = "our_db.csv"
+CUSTOMER_DB_FILE = "customer_db.csv"
 
 # ==========================================
 # 0-1. 최상단 공통 헬퍼 함수 정의
@@ -160,7 +162,7 @@ def render_unified_input(label, current_val, base_options, key_prefix):
         return selected
 
 # ==========================================
-# 0-2. i18n 다국어 사전
+# 0-2. i18n 다국어 사전 (SYSTEM MENU 개편)
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -170,12 +172,12 @@ TRANSLATIONS = {
         "logout": "🚪 로그아웃",
         "user_label": "👤 접속자:",
         "sys_menu": "SYSTEM MENU",
-        "menu_gen": "서류 통합 생성",
-        "menu_ledger": "서류 관리대장",
-        "menu_db": "마스터 DB 관리",
-        "menu_history": "서류이력",
-        "doc_gen_title": "📄 스마트 서류 자동 생성 시스템",
-        "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
+        "menu_gen": "자사 서류 생성",
+        "menu_our_db": "자사 서류 DB 관리",
+        "menu_customer_db": "고객사 서류 DB 관리",
+        "menu_history": "서류 이력",
+        "doc_gen_title": "📄 자사 서류 스마트 자동 생성 시스템",
+        "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
         "ai_mode_label": "AI 분석 엔진 선택",
         "mode_flash": "⚡ Gemini 3.6 Flash (고속)",
@@ -186,19 +188,20 @@ TRANSLATIONS = {
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
         "items_title": "📦 품목 상세 내역 (줄바꿈/엔터 지원 / 열 너비 자동 맞춤)",
         "remarks_title": "📝 Remarks & Deviations",
-        "reg_title": "📌 관리대장 및 DB 등록",
+        "reg_title": "📌 자사 서류 DB 등록",
         "pwd_save_label": "🔒 비밀번호",
-        "btn_register": "📥 관리대장 및 마스터 DB 등록",
+        "btn_register": "📥 자사 서류 DB에 등록",
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
-        "ledger_title": "📊 서류 발행 관리대장 및 파이프라인 관리",
+        "our_db_title": "📊 자사 서류 DB 관리 및 파이프라인",
+        "customer_db_title": "📊 고객사 서류 DB 관리",
         "filter_category": "1️⃣ 필터 항목 선택",
         "filter_value": "2️⃣ 하위 값 선택",
         "filter_keyword": "🔎 키워드 통합 검색",
         "filter_keyword_ph": "검색어 입력...",
         "total_records": "**총 `{count}` 건 조회됨** (전체 `{total}` 건 중)",
         "btn_download_csv": "📥 필터링된 결과 엑셀(CSV) 다운로드",
-        "no_ledger": "관리대장에 등록된 서류 내역이 없습니다.",
+        "no_ledger": "등록된 서류 내역이 없습니다.",
         "ai_db_title": "🤖 AI DB 수집기",
         "upload_db_label": "DB 파일 업로드",
         "parse_mode": "파싱 모드",
@@ -208,13 +211,10 @@ TRANSLATIONS = {
         "btn_analyze": "✨ 분석",
         "btn_parse_all": "🚀 전체 파싱",
         "btn_final_db_save": "✅ DB 최종 저장",
-        "db_mgmt_title": "📊 DB 관리",
         "btn_save_db": "💾 DB 수정사항 저장",
-        "db_reset_title": "🚨 DB 초기화",
-        "btn_reset": "🔥 초기화",
         "pwd_admin_label": "관리자 비밀번호 입력",
         "pwd_err": "❌ 비밀번호가 올바르지 않습니다.",
-        "reg_success": "🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {user})",
+        "reg_success": "🎉 자사 서류 DB 등록 완료 (작성자: {user})",
         "all": "전체",
     },
     "EN": {
@@ -224,12 +224,12 @@ TRANSLATIONS = {
         "logout": "🚪 Logout",
         "user_label": "👤 User:",
         "sys_menu": "SYSTEM MENU",
-        "menu_gen": "Document Generator",
-        "menu_ledger": "Document Ledger",
-        "menu_db": "Master DB Management",
+        "menu_gen": "In-house Doc Generator",
+        "menu_our_db": "In-house Doc DB Mgmt",
+        "menu_customer_db": "Customer Doc DB Mgmt",
         "menu_history": "Document History",
         "doc_gen_title": "📄 Smart Document Generation System",
-        "doc_gen_desc": "Supports fixed template & Master DB linked generation. All fields are 100% human-editable.",
+        "doc_gen_desc": "Supports fixed template & DB linked generation. All fields are 100% human-editable.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
         "ai_mode_label": "Select AI Engine",
         "mode_flash": "⚡ Gemini 3.6 Flash (Fast)",
@@ -240,19 +240,20 @@ TRANSLATIONS = {
         "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
         "items_title": "📦 Line Item Details (Multi-line supported / Auto-fit)",
         "remarks_title": "📝 Remarks & Deviations",
-        "reg_title": "📌 Save to Ledger & Master DB",
+        "reg_title": "📌 Save to In-house Doc DB",
         "pwd_save_label": "🔒 Password",
-        "btn_register": "📥 Save to Ledger & Master DB",
+        "btn_register": "📥 Save to In-house Doc DB",
         "preview_title": "⚡ Live PDF Document Preview",
         "btn_download_pdf": "💾 Download PDF Document",
-        "ledger_title": "📊 Document Ledger & Pipeline Management",
+        "our_db_title": "📊 In-house Document DB Management",
+        "customer_db_title": "📊 Customer Document DB Management",
         "filter_category": "1️⃣ Select Filter Column",
         "filter_value": "2️⃣ Select Sub-value",
         "filter_keyword": "🔎 Search Keyword",
         "filter_keyword_ph": "Type keyword...",
         "total_records": "**Total `{count}` record(s) found** (Out of `{total}`)",
         "btn_download_csv": "📥 Download Filtered Excel (CSV)",
-        "no_ledger": "No document records found in the ledger.",
+        "no_ledger": "No document records found.",
         "ai_db_title": "🤖 AI DB Collector",
         "upload_db_label": "Upload DB File",
         "parse_mode": "Parsing Mode",
@@ -261,14 +262,11 @@ TRANSLATIONS = {
         "select_sheet": "Select Sheet",
         "btn_analyze": "✨ Analyze",
         "btn_parse_all": "🚀 Parse All",
-        "btn_final_db_save": "✅ Save to Master DB",
-        "db_mgmt_title": "📊 DB Management",
+        "btn_final_db_save": "✅ Save to DB",
         "btn_save_db": "💾 Save DB Changes",
-        "db_reset_title": "🚨 Reset Master DB",
-        "btn_reset": "🔥 Reset DB",
         "pwd_admin_label": "Enter Admin Password",
         "pwd_err": "❌ Incorrect password.",
-        "reg_success": "🎉 Saved to Document Ledger & Master DB (Creator: {user})",
+        "reg_success": "🎉 Saved to In-house Doc DB (Creator: {user})",
         "all": "All",
     }
 }
@@ -703,9 +701,7 @@ INLINE_HTML_TEMPLATE = """
 # 3. 환경 및 데이터 정제 필수 도구
 # ==========================================
 KEY_FILE = "gemini_key.txt"
-DB_FILE = "master_db.csv"
 HISTORY_FILE = "master_history.json"
-LEDGER_FILE = "doc_ledger.csv"
 INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
@@ -783,13 +779,14 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-db_init = safe_read_csv(DB_FILE, db_cols)
-db_init = ensure_cols(db_init, db_cols)
-clean_df(db_init).to_csv(DB_FILE, index=False)
+# 자사 DB 및 고객사 DB 파일 초기화
+our_db_init = safe_read_csv(OUR_DB_FILE, db_cols)
+our_db_init = ensure_cols(our_db_init, db_cols)
+clean_df(our_db_init).to_csv(OUR_DB_FILE, index=False)
 
-ledger_init = safe_read_csv(LEDGER_FILE, ledger_cols)
-ledger_init = ensure_cols(ledger_init, ledger_cols)
-clean_df(ledger_init).to_csv(LEDGER_FILE, index=False)
+customer_db_init = safe_read_csv(CUSTOMER_DB_FILE, db_cols)
+customer_db_init = ensure_cols(customer_db_init, db_cols)
+clean_df(customer_db_init).to_csv(CUSTOMER_DB_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -807,9 +804,9 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
-    ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
-    ledger_df = ensure_cols(ledger_df, ledger_cols)
+def save_to_our_db(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
+    our_df = safe_read_csv(OUR_DB_FILE, db_cols)
+    our_df = ensure_cols(our_df, db_cols)
 
     issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     doc_date_str = doc_date_str or "-"
@@ -835,14 +832,14 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
         "Status": default_status
     }])
 
-    updated_df = pd.concat([ledger_df, new_entry], ignore_index=True)
-    updated_df = ensure_cols(updated_df, ledger_cols)
-    updated_df.to_csv(LEDGER_FILE, index=False)
+    updated_df = pd.concat([our_df, new_entry], ignore_index=True)
+    updated_df = ensure_cols(updated_df, db_cols)
+    updated_df.to_csv(OUR_DB_FILE, index=False)
 
 def safe_merge_db(existing_db, new_data_df):
     if new_data_df is None or new_data_df.empty: return existing_db
     combined = pd.concat([existing_db, new_data_df], ignore_index=True)
-    combined = ensure_cols(combined, ledger_cols)
+    combined = ensure_cols(combined, db_cols)
     return clean_df(combined)
 
 if 'doc_info' not in st.session_state:
@@ -971,15 +968,13 @@ def run_bg_sheet_parse(task_state, api_key, excel_bytes, sheet_names, ai_mode):
             try:
                 df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all').dropna(how='all', axis=1)
                 if not df_clean.empty:
-                    prompt = f"Extract ALL items from sheet '{s_name}' into JSON Array: [{{\"PartNo\":\"\", \"ItemName\":\"\", \"Description\":\"\", \"UnitPrice\":100.0, \"Remarks\":\"\"}}]."
+                    prompt = f"Extract ALL items from sheet '{s_name}' into JSON Array: [{{\"IssueDate\":\"\", \"DocDate\":\"\", \"DocType\":\"\", \"OurRef\":\"\", \"YourRef\":\"\", \"ShipName\":\"\", \"TargetName\":\"\", \"Currency\":\"KRW\", \"TotalAmount\":0.0, \"ItemCount\":1, \"CreatedBy\":\"\", \"Status\":\"🟡 Quoted\"}}]."
                     res = get_ai_response(api_key, [prompt, f"CSV:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
             except Exception: pass
             
         parsed_df = pd.DataFrame(all_results)
-        for col in ['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']:
-            if col not in parsed_df.columns: parsed_df[col] = '' if col != 'UnitPrice' else 0.0
-        parsed_df['UnitPrice'] = pd.to_numeric(parsed_df['UnitPrice'], errors='coerce').fillna(0.0)
+        parsed_df = ensure_cols(parsed_df, db_cols)
         task_state['result'] = clean_df(parsed_df)
         task_state['status'] = 'completed'
     except Exception as e:
@@ -1017,7 +1012,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바
+# 5. UI 및 사이드바 (SYSTEM MENU 개편)
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1045,13 +1040,13 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-menu_options = [t("menu_gen"), t("menu_ledger"), t("menu_db"), t("menu_history")]
+menu_options = [t("menu_gen"), t("menu_our_db"), t("menu_customer_db"), t("menu_history")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
-if menu_selection == t("menu_gen"): menu = "서류 통합 생성"
-elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
-elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
-else: menu = "서류이력"
+if menu_selection == t("menu_gen"): menu = "자사 서류 생성"
+elif menu_selection == t("menu_our_db"): menu = "자사 서류 DB 관리"
+elif menu_selection == t("menu_customer_db"): menu = "고객사 서류 DB 관리"
+else: menu = "서류 이력"
 
 if 'current_menu' not in st.session_state:
     st.session_state['current_menu'] = menu
@@ -1063,13 +1058,13 @@ elif st.session_state['current_menu'] != menu:
 task = st.session_state['bg_task']
 if is_running:
     st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
-elif task['status'] == 'error' and menu == "서류 통합 생성":
+elif task['status'] == 'error' and menu == "자사 서류 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성
+# 6. 자사 서류 생성 (기존 '서류 통합 생성')
 # ==========================================
-if menu == "서류 통합 생성":
+if menu == "자사 서류 생성":
     doc_type = st.sidebar.selectbox(
         "📋 " + ("Document Type" if st.session_state['lang'] == "EN" else "서류 유형 선택"), 
         ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]
@@ -1077,7 +1072,7 @@ if menu == "서류 통합 생성":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    db = clean_df(safe_read_csv(DB_FILE, db_cols))
+    db = clean_df(safe_read_csv(OUR_DB_FILE, db_cols))
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
@@ -1092,7 +1087,6 @@ if menu == "서류 통합 생성":
         
         current_logged_user = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
 
-        # 수신/발신 역할 지정 및 PIC 자동 판단 로직
         if not is_our_company_issuer and issuer_comp:
             to_field_val = issuer_comp
             attn_field_val = issuer_pic
@@ -1377,6 +1371,7 @@ if menu == "서류 통합 생성":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
+            # 자사 서류 DB(our_db.csv)로 저장 연동
             if st.button(t("btn_register"), type="secondary", disabled=is_running):
                 if reg_pwd != SAVE_PASSWORD:
                     st.error(t("pwd_err"))
@@ -1385,7 +1380,7 @@ if menu == "서류 통합 생성":
                     st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
                     st.session_state['doc_items'] = clean_df(edited_df)
                     
-                    save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), current_user_email)
+                    save_to_our_db(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), current_user_email)
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user_email))
 
@@ -1479,19 +1474,23 @@ if menu == "서류 통합 생성":
                         st.markdown(f'<a href="{mailto_url}" target="_blank" class="google-btn" style="text-align:center; display:block;">✉️ 메일 앱으로 전송 (Mailto)</a>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 서류 관리대장
+# 7. 자사 서류 DB 관리 (our_db.csv 연동)
 # ==========================================
-elif menu == "서류 관리대장":
-    ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
-    ledger_df = ensure_cols(ledger_df, ledger_cols)
+elif menu == "자사 서류 DB 관리":
+    our_db_df = safe_read_csv(OUR_DB_FILE, db_cols)
+    our_db_df = ensure_cols(our_db_df, db_cols)
+    our_db_df = clean_df(our_db_df)
     
+    if task['status'] == 'completed' and task['type'] == 'our_db_parse':
+        st.session_state['temp_our_db_upload'] = clean_df(task['result'])
+        st.session_state['bg_task']['status'] = 'idle'
+        st.success("🎉 AI Parsing Complete")
+
     with st.container(border=True):
-        st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">{t("our_db_title")}</div>', unsafe_allow_html=True)
 
-        if not ledger_df.empty:
-            ledger_df = clean_df(ledger_df[ledger_cols])
-
-            status_counts = ledger_df["Status"].value_counts()
+        if not our_db_df.empty:
+            status_counts = our_db_df["Status"].value_counts()
             
             c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
             c_m1.metric("🟡 Quoted (견적)", f"{status_counts.get('🟡 Quoted', 0)} 건")
@@ -1503,26 +1502,25 @@ elif menu == "서류 관리대장":
             st.markdown("<hr style='margin: 12px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
 
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
-            
             valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "OurRef", "YourRef"]
-            col_options = [t("all")] + [c for c in valid_cols if c in ledger_df.columns]
+            col_options = [t("all")] + [c for c in valid_cols if c in our_db_df.columns]
             
             with f_col1:
-                selected_col = st.selectbox(t("filter_category"), col_options)
+                selected_col = st.selectbox(t("filter_category"), col_options, key="our_filter_cat")
 
             with f_col2:
                 if selected_col == t("all"):
                     sub_options = [t("all")]
-                    selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True)
+                    selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True, key="our_filter_val")
                 else:
-                    unique_vals = sorted([str(x) for x in ledger_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
+                    unique_vals = sorted([str(x) for x in our_db_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
                     sub_options = [t("all")] + unique_vals
-                    selected_val = st.selectbox(t("filter_value"), sub_options)
+                    selected_val = st.selectbox(t("filter_value"), sub_options, key="our_filter_val")
 
             with f_col3:
-                keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"))
+                keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"), key="our_kw_search")
 
-            filtered_df = ledger_df.copy()
+            filtered_df = our_db_df.copy()
 
             if selected_col != t("all") and selected_val != t("all"):
                 filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
@@ -1532,117 +1530,209 @@ elif menu == "서류 관리대장":
                 match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
                 filtered_df = filtered_df[match_mask]
 
-            st.markdown(t("total_records", count=len(filtered_df), total=len(ledger_df)))
+            st.markdown(t("total_records", count=len(filtered_df), total=len(our_db_df)))
+
+            selected_cols = st.multiselect("📌 표시 및 편집할 열 선택 (열 삭제/숨김 가능)", options=db_cols, default=db_cols, key="our_db_col_select")
 
             ledger_config = {
-                "IssueDate": st.column_config.TextColumn("Issue Date", disabled=True),
-                "DocDate": st.column_config.TextColumn("Doc Date", disabled=True),
-                "DocType": st.column_config.TextColumn("Doc Type", disabled=True),
-                "OurRef": st.column_config.TextColumn("Our Ref", disabled=True),
-                "YourRef": st.column_config.TextColumn("Your Ref", disabled=True),
-                "ShipName": st.column_config.TextColumn("Ship Name", disabled=True),
-                "TargetName": st.column_config.TextColumn("Target Name", disabled=True),
-                "Currency": st.column_config.TextColumn("Currency", disabled=True),
-                "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f", disabled=True),
-                "ItemCount": st.column_config.NumberColumn("Item Count", disabled=True),
-                "CreatedBy": st.column_config.TextColumn("Created By", disabled=True),
+                "IssueDate": st.column_config.TextColumn("Issue Date"),
+                "DocDate": st.column_config.TextColumn("Doc Date"),
+                "DocType": st.column_config.SelectboxColumn("Doc Type", options=["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"]),
+                "OurRef": st.column_config.TextColumn("Our Ref"),
+                "YourRef": st.column_config.TextColumn("Your Ref"),
+                "ShipName": st.column_config.TextColumn("Ship Name"),
+                "TargetName": st.column_config.TextColumn("Target Name"),
+                "Currency": st.column_config.SelectboxColumn("Currency", options=CURRENCY_OPTIONS),
+                "TotalAmount": st.column_config.NumberColumn("Total Amount", format="%,.2f"),
+                "ItemCount": st.column_config.NumberColumn("Item Count"),
+                "CreatedBy": st.column_config.TextColumn("Created By"),
                 "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=STATUS_OPTIONS, required=True),
             }
+            active_config = {k: v for k, v in ledger_config.items() if k in selected_cols}
 
-            edited_ledger_df = st.data_editor(filtered_df, column_config=ledger_config, use_container_width=True, key="ledger_editor")
+            edited_df = st.data_editor(filtered_df[selected_cols], column_config=active_config, num_rows="dynamic", use_container_width=True, key="our_db_editor")
 
-            if st.button("💾 상태(Status) 변경사항 저장"):
-                ledger_df.update(edited_ledger_df)
-                ledger_df.to_csv(LEDGER_FILE, index=False)
-                st.success("🎉 관리대장 상태(Status)가 성공적으로 업데이트되었습니다.")
+            if st.button("💾 자사 서류 DB 변경사항 저장", key="btn_save_our_db"):
+                if selected_col == t("all") and not keyword.strip():
+                    updated_master = edited_df
+                else:
+                    updated_master = our_db_df.copy()
+                    updated_master.loc[filtered_df.index, selected_cols] = edited_df[selected_cols]
+                
+                updated_master.to_csv(OUR_DB_FILE, index=False)
+                st.success("🎉 자사 서류 DB 변경사항이 성공적으로 저장되었습니다.")
                 st.rerun()
 
-            st.download_button(t("btn_download_csv"), edited_ledger_df.to_csv(index=False, encoding='utf-8-sig'), file_name="ledger_filtered.csv", mime="text/csv")
+            st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="our_db_filtered.csv", mime="text/csv", key="dl_our_db_csv")
         else:
             st.info(t("no_ledger"))
 
-    # 서류 관리대장 초기화 기능
+    # AI DB 수집기
     with st.container(border=True):
-        with st.expander("🚨 서류 관리대장 초기화"):
-            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_ledger_pwd")
-            if st.button(t("btn_reset"), key="btn_reset_ledger") and pwd_input == ADMIN_PASSWORD:
-                pd.DataFrame(columns=ledger_cols).to_csv(LEDGER_FILE, index=False)
-                st.success("서류 관리대장이 성공적으로 초기화되었습니다.")
+        st.markdown(f'<div class="section-title">{t("ai_db_title")} (자사 서류 추가 수집)</div>', unsafe_allow_html=True)
+        
+        ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="our_db_ai_mode")
+        selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running, key="our_db_uploader")
+        
+        if uploaded_db_file:
+            sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
+            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="our_db_parse_mode")
+            if parse_mode == t("parse_mode_sheet"):
+                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="our_db_sheet_sel")
+                if st.button(t("btn_analyze"), disabled=is_running, key="btn_our_db_analyze"):
+                    st.session_state['bg_task']['type'] = 'our_db_parse'
+                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
+                    st.rerun()
+            else:
+                if st.button(t("btn_parse_all"), disabled=is_running, key="btn_our_db_parse_all"):
+                    st.session_state['bg_task']['type'] = 'our_db_parse'
+                    start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
+                    st.rerun()
+
+        if 'temp_our_db_upload' in st.session_state and not st.session_state['temp_our_db_upload'].empty:
+            st.dataframe(st.session_state['temp_our_db_upload'], use_container_width=True)
+            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="our_db_parse_pwd")
+            if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_our_db_final_save"):
+                if db_parse_pwd != SAVE_PASSWORD:
+                    st.error(t("pwd_err"))
+                else:
+                    updated_db = safe_merge_db(our_db_df, st.session_state['temp_our_db_upload'])
+                    updated_db.to_csv(OUR_DB_FILE, index=False)
+                    del st.session_state['temp_our_db_upload']
+                    st.success("Successfully saved to In-house DB.")
+                    st.rerun()
+
+    # 자사 서류 DB 초기화 기능
+    with st.container(border=True):
+        with st.expander("🚨 자사 서류 DB 초기화"):
+            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_our_db_pwd")
+            if st.button(t("btn_reset"), key="btn_reset_our_db") and pwd_input == ADMIN_PASSWORD:
+                pd.DataFrame(columns=db_cols).to_csv(OUR_DB_FILE, index=False)
+                st.success("자사 서류 DB가 성공적으로 초기화되었습니다.")
                 st.rerun()
 
 # ==========================================
-# 8. 마스터 DB 관리
+# 8. 고객사 서류 DB 관리 (customer_db.csv 연동)
 # ==========================================
-elif menu == "마스터 DB 관리":
-    db = safe_read_csv(DB_FILE, db_cols)
-    db = ensure_cols(db, db_cols)
-    db = clean_df(db)
+elif menu == "고객사 서류 DB 관리":
+    customer_db_df = safe_read_csv(CUSTOMER_DB_FILE, db_cols)
+    customer_db_df = ensure_cols(customer_db_df, db_cols)
+    customer_db_df = clean_df(customer_db_df)
     
-    if task['status'] == 'completed' and task['type'] == 'db_parse':
-        st.session_state['temp_db_upload'] = clean_df(task['result'])
+    if task['status'] == 'completed' and task['type'] == 'customer_db_parse':
+        st.session_state['temp_customer_db_upload'] = clean_df(task['result'])
         st.session_state['bg_task']['status'] = 'idle'
         st.success("🎉 AI Parsing Complete")
 
     with st.container(border=True):
-        st.markdown(f'<div class="section-title">{t("ai_db_title")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-title">{t("customer_db_title")}</div>', unsafe_allow_html=True)
+
+        if not customer_db_df.empty:
+            f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
+            valid_cols = ["Status", "DocType", "ShipName", "CreatedBy", "TargetName", "Currency", "IssueDate", "DocDate", "OurRef", "YourRef"]
+            col_options = [t("all")] + [c for c in valid_cols if c in customer_db_df.columns]
+            
+            with f_col1:
+                selected_col = st.selectbox(t("filter_category"), col_options, key="cust_filter_cat")
+
+            with f_col2:
+                if selected_col == t("all"):
+                    sub_options = [t("all")]
+                    selected_val = st.selectbox(t("filter_value"), sub_options, disabled=True, key="cust_filter_val")
+                else:
+                    unique_vals = sorted([str(x) for x in customer_db_df[selected_col].unique() if str(x).strip() and str(x) != "-"])
+                    sub_options = [t("all")] + unique_vals
+                    selected_val = st.selectbox(t("filter_value"), sub_options, key="cust_filter_val")
+
+            with f_col3:
+                keyword = st.text_input(t("filter_keyword"), placeholder=t("filter_keyword_ph"), key="cust_kw_search")
+
+            filtered_df = customer_db_df.copy()
+
+            if selected_col != t("all") and selected_val != t("all"):
+                filtered_df = filtered_df[filtered_df[selected_col].astype(str) == selected_val]
+
+            if keyword.strip():
+                kw = keyword.strip().lower()
+                match_mask = filtered_df.apply(lambda row: row.astype(str).str.lower().str.contains(kw).any(), axis=1)
+                filtered_df = filtered_df[match_mask]
+
+            st.markdown(t("total_records", count=len(filtered_df), total=len(customer_db_df)))
+
+            selected_cols = st.multiselect("📌 표시 및 편집할 열 선택 (열 삭제/숨김 가능)", options=db_cols, default=db_cols, key="cust_db_col_select")
+
+            edited_df = st.data_editor(filtered_df[selected_cols], num_rows="dynamic", use_container_width=True, key="customer_db_editor")
+
+            if st.button("💾 고객사 서류 DB 변경사항 저장", key="btn_save_customer_db"):
+                db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="cust_db_pwd_save_field")
+                if db_edit_pwd != SAVE_PASSWORD:
+                    st.error(t("pwd_err"))
+                else:
+                    if selected_col == t("all") and not keyword.strip():
+                        updated_master = edited_df
+                    else:
+                        updated_master = customer_db_df.copy()
+                        updated_master.loc[filtered_df.index, selected_cols] = edited_df[selected_cols]
+                    
+                    updated_master.to_csv(CUSTOMER_DB_FILE, index=False)
+                    st.success("🎉 고객사 서류 DB 변경사항이 성공적으로 저장되었습니다.")
+                    st.rerun()
+
+            st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="customer_db_filtered.csv", mime="text/csv", key="dl_cust_db_csv")
+        else:
+            st.info(t("no_ledger"))
+
+    # AI DB 수집기
+    with st.container(border=True):
+        st.markdown(f'<div class="section-title">{t("ai_db_title")} (고객사 DB 수집)</div>', unsafe_allow_html=True)
         
-        ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="db_ai_mode")
+        ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="cust_db_ai_mode")
         selected_mode_db = "thinking" if "Thinking" in ai_mode_choice_db or "사고" in ai_mode_choice_db else "flash"
-        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running)
+        uploaded_db_file = st.file_uploader(t("upload_db_label"), type=["xlsx", "csv"], disabled=is_running, key="cust_db_uploader")
         
         if uploaded_db_file:
             sheet_names = pd.ExcelFile(uploaded_db_file).sheet_names
-            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running)
+            parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="cust_db_parse_mode")
             if parse_mode == t("parse_mode_sheet"):
-                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running)
-                if st.button(t("btn_analyze"), disabled=is_running):
-                    st.session_state['bg_task']['type'] = 'db_parse'
+                selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="cust_db_sheet_sel")
+                if st.button(t("btn_analyze"), disabled=is_running, key="btn_cust_db_analyze"):
+                    st.session_state['bg_task']['type'] = 'customer_db_parse'
                     start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), [selected_sheet], selected_mode_db))
                     st.rerun()
             else:
-                if st.button(t("btn_parse_all"), disabled=is_running):
-                    st.session_state['bg_task']['type'] = 'db_parse'
+                if st.button(t("btn_parse_all"), disabled=is_running, key="btn_cust_db_parse_all"):
+                    st.session_state['bg_task']['type'] = 'customer_db_parse'
                     start_bg_thread(run_bg_sheet_parse, (st.session_state['bg_task'], gemini_key, uploaded_db_file.getvalue(), sheet_names, selected_mode_db))
                     st.rerun()
 
-        if 'temp_db_upload' in st.session_state and not st.session_state['temp_db_upload'].empty:
-            st.dataframe(st.session_state['temp_db_upload'], use_container_width=True)
-            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_parse_pwd")
-            if st.button(t("btn_final_db_save"), disabled=is_running):
+        if 'temp_customer_db_upload' in st.session_state and not st.session_state['temp_customer_db_upload'].empty:
+            st.dataframe(st.session_state['temp_customer_db_upload'], use_container_width=True)
+            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="cust_db_parse_pwd")
+            if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_cust_db_final_save"):
                 if db_parse_pwd != SAVE_PASSWORD:
                     st.error(t("pwd_err"))
                 else:
-                    updated_db = safe_merge_db(db, st.session_state['temp_db_upload'])
-                    updated_db.to_csv(DB_FILE, index=False)
-                    del st.session_state['temp_db_upload']
-                    st.success("Successfully saved to Master DB.")
+                    updated_db = safe_merge_db(customer_db_df, st.session_state['temp_customer_db_upload'])
+                    updated_db.to_csv(CUSTOMER_DB_FILE, index=False)
+                    del st.session_state['temp_customer_db_upload']
+                    st.success("Successfully saved to Customer DB.")
                     st.rerun()
-    
+
+    # 고객사 서류 DB 초기화
     with st.container(border=True):
-        st.markdown(f'<div class="section-title">{t("db_mgmt_title")}</div>', unsafe_allow_html=True)
-        edited_db = clean_df(st.data_editor(db[db_cols], num_rows="dynamic", use_container_width=True))
-        
-        db_edit_pwd = st.text_input(t("pwd_save_label"), type="password", key="db_edit_pwd")
-        if st.button(t("btn_save_db")):
-            if db_edit_pwd != SAVE_PASSWORD:
-                st.error(t("pwd_err"))
-            else:
-                edited_db.to_csv(DB_FILE, index=False)
-                st.success("Master DB changes saved successfully.")
-    
-    with st.container(border=True):
-        with st.expander(t("db_reset_title")):
-            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_pwd")
-            if st.button(t("btn_reset")) and pwd_input == ADMIN_PASSWORD:
-                pd.DataFrame(columns=db_cols).to_csv(DB_FILE, index=False)
-                st.success("Master DB initialized.")
+        with st.expander("🚨 고객사 서류 DB 초기화"):
+            pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_customer_db_pwd")
+            if st.button(t("btn_reset"), key="btn_reset_customer_db") and pwd_input == ADMIN_PASSWORD:
+                pd.DataFrame(columns=db_cols).to_csv(CUSTOMER_DB_FILE, index=False)
+                st.success("고객사 서류 DB가 성공적으로 초기화되었습니다.")
                 st.rerun()
 
 # ==========================================
-# 9. 서류이력
+# 9. 서류 이력
 # ==========================================
 else:
-    st.markdown("""<div class="main-header"><h1>🖼️ 서류이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 바둑판식 카드 그리드로 조회하고 확대할 수 있습니다.</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 바둑판식 카드 그리드로 조회하고 확대할 수 있습니다.</p></div>""", unsafe_allow_html=True)
 
     tab_out, tab_in = st.tabs(["📄 생성 완료된 PDF 서류", "📥 AI 인풋 분석 문서/이미지"])
 
@@ -1701,9 +1791,9 @@ else:
         else:
             st.info("AI 문서 분석에 업로드된 인풋 문서가 없습니다.")
 
-    # 서류이력 초기화 기능
+    # 서류 이력 초기화 기능
     with st.container(border=True):
-        with st.expander("🚨 서류이력 초기화"):
+        with st.expander("🚨 서류 이력 초기화"):
             pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_history_pwd")
             if st.button(t("btn_reset"), key="btn_reset_history") and pwd_input == ADMIN_PASSWORD:
                 for f in os.listdir("output"):
@@ -1713,7 +1803,7 @@ else:
                 for f in os.listdir(INPUT_DOCS_DIR):
                     try: os.remove(os.path.join(INPUT_DOCS_DIR, f))
                     except Exception: pass
-                st.success("서류이력이 성공적으로 초기화되었습니다.")
+                st.success("서류 이력이 성공적으로 초기화되었습니다.")
                 st.rerun()
 
 if is_running:
