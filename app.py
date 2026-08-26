@@ -64,6 +64,20 @@ def safe_float(val, default=0.0):
             return default
     return default
 
+# ⭐ [EmptyDataError 방어] CSV 파일이 0바이트이거나 비어있어도 안선하게 읽어오는 헬퍼 함수
+def safe_read_csv(filepath, default_cols=None):
+    if default_cols is None:
+        default_cols = []
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        return pd.DataFrame(columns=default_cols)
+    try:
+        df = pd.read_csv(filepath)
+        if df.empty:
+            return pd.DataFrame(columns=default_cols)
+        return df
+    except (pd.errors.EmptyDataError, Exception):
+        return pd.DataFrame(columns=default_cols)
+
 # 실시간 환율 정보 조회 함수 (USD 기준 API)
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
@@ -540,17 +554,17 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-if os.path.exists(DB_FILE):
-    db_init = pd.read_csv(DB_FILE)
-    if "Category" in db_init.columns and "PartNo" not in db_init.columns: db_init = db_init.rename(columns={"Category": "PartNo"})
-    for req in ["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]:
-        if req not in db_init.columns: db_init[req] = "" if req != "UnitPrice" else 0.0
-    clean_df(db_init[["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]]).to_csv(DB_FILE, index=False)
-else:
-    pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
+# 안전한 CSV 초기화 (EmptyDataError 방지)
+db_cols = ["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]
+db_init = safe_read_csv(DB_FILE, db_cols)
+if "Category" in db_init.columns and "PartNo" not in db_init.columns: db_init = db_init.rename(columns={"Category": "PartNo"})
+for req in db_cols:
+    if req not in db_init.columns: db_init[req] = "" if req != "UnitPrice" else 0.0
+clean_df(db_init[db_cols]).to_csv(DB_FILE, index=False)
 
-if not os.path.exists(LEDGER_FILE):
-    pd.DataFrame(columns=["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]).to_csv(LEDGER_FILE, index=False)
+ledger_cols = ["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]
+ledger_init = safe_read_csv(LEDGER_FILE, ledger_cols)
+clean_df(ledger_init).to_csv(LEDGER_FILE, index=False)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -569,7 +583,7 @@ def save_history(ship, to, attn):
             json.dump(data, f, ensure_ascii=False, indent=2)
 
 def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
-    ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
+    ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
     
     if not ledger_df.empty:
         if "Date" in ledger_df.columns and "DocDate" not in ledger_df.columns:
@@ -604,11 +618,10 @@ def save_to_ledger(doc_type, your_ref, our_ref, ship_name, target_name, doc_date
     }])
 
     updated_df = pd.concat([ledger_df, new_entry], ignore_index=True)
-    cols_order = ["IssueDate", "DocDate", "DocType", "Status", "YourRef", "OurRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy"]
-    for c in cols_order:
+    for c in ledger_cols:
         if c not in updated_df.columns: updated_df[c] = "-"
     
-    updated_df[cols_order].to_csv(LEDGER_FILE, index=False)
+    updated_df[ledger_cols].to_csv(LEDGER_FILE, index=False)
 
 def safe_merge_db(existing_db, new_data_df):
     if new_data_df is None or new_data_df.empty: return existing_db
@@ -657,7 +670,6 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
-# ⭐ [오류 수정 완료] 환율 및 선택 옵션 원복 방지 처리된 통합 드롭다운 헬퍼 함수
 def render_unified_input(label, current_val, base_options, key_prefix):
     display_label = f"▾ {label}" if not label.startswith("▾") else label
     curr = clean_str(current_val)
@@ -865,7 +877,7 @@ if menu == "서류 통합 생성":
 
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    db = clean_df(pd.read_csv(DB_FILE))
+    db = clean_df(safe_read_csv(DB_FILE, db_cols))
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
@@ -1195,8 +1207,51 @@ if menu == "서류 통합 생성":
                     st.markdown(f'<div class="total-subbadge">💡 Approximate Value in KRW: <b>₩ {converted_val_krw:,.0f} 원</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
             else: total_val = 0.0
 
+            # ⭐ [신규] Remarks & Deviations 및 원클릭 프리셋 툴키트
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
-            bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
+            
+            preset_col1, preset_col2, preset_col3 = st.columns([1, 1, 1])
+            
+            TERMS_PRESET = (
+                "[Terms & Conditions]\n"
+                "1) Payment: T/T remittance within (30) days from the date of invoice\n"
+                "2) Shipment: Hand-carry by the service engineer\n"
+                "3) Lead-time: Ready in stock\n"
+                "4) Warranty: N/A\n"
+                "5) Warranty Exceptions: Any damages or faults by user's carelessness\n"
+                "6) Drawing: N/A\n"
+                "7) Commissioning: N/A"
+            )
+            
+            BANK_PRESET = (
+                "[Bank Account Information]\n"
+                "* Name of Bank: KEB HANA Bank (CHORYANG Branch)\n"
+                "* SWIFT Code: KOEXKRSE\n"
+                "* [KRW] Account No.: 322-910016-39004\n"
+                "* [USD/EUR/JPY/SGD] Account No.: 322-910008-03738\n"
+                "* Beneficiary: One Solution Co., Ltd.\n"
+                "► All the banking fees must be paid by remitter without any deduction from the total amount on this invoice."
+            )
+
+            with preset_col1:
+                if st.button("📋 [Terms & Conditions] 추가", key="btn_preset_terms"):
+                    curr_rem = st.session_state['doc_info'].get("bottom_remarks", "")
+                    st.session_state['doc_info']["bottom_remarks"] = f"{curr_rem}\n\n{TERMS_PRESET}".strip()
+                    st.rerun()
+                    
+            with preset_col2:
+                if st.button("🏦 [Bank Account] 추가", key="btn_preset_bank"):
+                    curr_rem = st.session_state['doc_info'].get("bottom_remarks", "")
+                    st.session_state['doc_info']["bottom_remarks"] = f"{curr_rem}\n\n{BANK_PRESET}".strip()
+                    st.rerun()
+
+            with preset_col3:
+                if st.button("🧹 Remarks 내용 비우기", key="btn_preset_clear"):
+                    st.session_state['doc_info']["bottom_remarks"] = ""
+                    st.rerun()
+
+            bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=120, label_visibility="collapsed", key="txt_bottom_remarks")
+            st.session_state['doc_info']["bottom_remarks"] = bottom_remarks
             
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
@@ -1286,7 +1341,6 @@ if menu == "서류 통합 생성":
                 if 'generated_email_body' in st.session_state:
                     email_body_text = st.text_area("메일 본문 (수정 가능)", value=st.session_state['generated_email_body'], height=220)
                     
-                    # ⭐ 수신인 필수 입력 안전 검증 조건문
                     if not email_to.strip():
                         st.warning("⚠️ 수신인 이메일(To)을 입력해야 메일 앱으로 전송할 수 있습니다.")
                     else:
@@ -1303,7 +1357,7 @@ if menu == "서류 통합 생성":
 # 7. 서류 관리대장 (영업 파이프라인 관리)
 # ==========================================
 elif menu == "서류 관리대장":
-    ledger_df = pd.read_csv(LEDGER_FILE) if os.path.exists(LEDGER_FILE) else pd.DataFrame()
+    ledger_df = safe_read_csv(LEDGER_FILE, ledger_cols)
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ledger_title")}</div>', unsafe_allow_html=True)
 
@@ -1382,7 +1436,7 @@ elif menu == "서류 관리대장":
 # 8. 마스터 DB 관리
 # ==========================================
 elif menu == "마스터 DB 관리":
-    db = clean_df(pd.read_csv(DB_FILE))
+    db = clean_df(safe_read_csv(DB_FILE, db_cols))
     
     if task['status'] == 'completed' and task['type'] == 'db_parse':
         st.session_state['temp_db_upload'] = clean_df(task['result'])
@@ -1440,7 +1494,7 @@ elif menu == "마스터 DB 관리":
         with st.expander(t("db_reset_title")):
             pwd_input = st.text_input(t("pwd_admin_label"), type="password", key="reset_pwd")
             if st.button(t("btn_reset")) and pwd_input == ADMIN_PASSWORD:
-                pd.DataFrame(columns=["PartNo", "ItemName", "Description", "UnitPrice", "Remarks"]).to_csv(DB_FILE, index=False)
+                pd.DataFrame(columns=db_cols).to_csv(DB_FILE, index=False)
                 st.success("Master DB initialized.")
                 st.rerun()
 
