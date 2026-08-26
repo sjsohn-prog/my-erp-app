@@ -325,17 +325,26 @@ if 'lang' not in st.session_state:
 custom_css = """
 <style>
     .main .block-container {
-        padding-top: 1.8rem !important;
+        padding-top: 1.2rem !important;
         padding-bottom: 1rem !important;
     }
     
-    div[data-testid="stColumn"]:nth-child(2) div[data-testid="stRadio"] {
-        display: flex !important;
-        justify-content: flex-end !important;
+    /* 2번 요구사항: KR EN 스위치를 상단 헤더 툴바 우측으로 위로 고정 이동 */
+    div[data-testid="stRadio"]:has(input[aria-label="Language"]),
+    div[data-testid="stRadio"]:has(input[value="KR"]) {
+        position: fixed !important;
+        top: 10px !important;
+        right: 175px !important;
+        z-index: 999999 !important;
+        background: rgba(15, 23, 42, 0.9) !important;
+        border: 1px solid #0284C7 !important;
+        padding: 2px 10px !important;
+        border-radius: 18px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
     }
-    div[data-testid="stColumn"]:nth-child(2) div[data-testid="stRadio"] > div {
+    div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
+    div[data-testid="stRadio"]:has(input[value="KR"]) > div {
         flex-direction: row !important;
-        justify-content: flex-end !important;
         gap: 10px !important;
     }
 
@@ -409,13 +418,11 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 상단 우측 위치 KR / EN 스위치
-top_l_col, top_r_col = st.columns([8.2, 1.8])
-with top_r_col:
-    selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
-    if selected_lang != st.session_state['lang']:
-        st.session_state['lang'] = selected_lang
-        st.rerun()
+# 2번 요구사항: 상단 우측 툴바 정렬 KR / EN 언어 선택 스위치
+selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
+if selected_lang != st.session_state['lang']:
+    st.session_state['lang'] = selected_lang
+    st.rerun()
 
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
@@ -469,7 +476,6 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (수정된 셀 하이라이팅 background-color: #FFFF70 스타일 정의 포함)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -701,7 +707,6 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 수정 셀 감지 및 PDF 하이라이팅 데이터 처리 함수
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -1085,18 +1090,33 @@ if menu == "서류 통합 생성":
         issuer_check = (issuer_comp + " " + issuer_pic).lower()
         is_our_company_issuer = any(kw in issuer_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in issuer_check)
         
+        current_logged_user = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
+
+        # 1번 요구사항: 외부 수신 문서 파싱 시 원솔루션 담당자가 있으면 그 사람을 PIC에 넣고, 없으면 로그인한 유저 배치
         if not is_our_company_issuer and issuer_comp:
             to_field_val = issuer_comp
             attn_field_val = issuer_pic
-            pic_field_val = st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "ONE SOLUTION"
             your_ref_val = clean_str(ai_data.get("our_ref", "")) or clean_str(ai_data.get("your_ref", ""))
             our_ref_val = ""
+            
+            if recip_attn and not any(kw in recip_attn.lower() for kw in ["1solution", "원솔루션", "one solution"]):
+                pic_field_val = recip_attn
+            elif recip_attn:
+                pic_field_val = recip_attn
+            else:
+                pic_field_val = current_logged_user
         else:
             to_field_val = recip_comp
             attn_field_val = recip_attn
-            pic_field_val = issuer_pic if issuer_pic else (st.session_state.get('user_email', '').split('@')[0].upper() if st.session_state.get('user_email') else "")
             your_ref_val = clean_str(ai_data.get("your_ref", ""))
             our_ref_val = clean_str(ai_data.get("our_ref", ""))
+            
+            if issuer_pic and not any(kw in issuer_pic.lower() for kw in ["1solution", "원솔루션", "one solution"]):
+                pic_field_val = issuer_pic
+            elif issuer_pic:
+                pic_field_val = issuer_pic
+            else:
+                pic_field_val = current_logged_user
 
         project_val = clean_str(ai_data.get("project_title", ""))
         validity_val = clean_str(ai_data.get("validity", "30 Days"))
@@ -1157,7 +1177,6 @@ if menu == "서류 통합 생성":
 
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
             st.session_state['doc_items'] = clean_df(items_df)
-            # 원본 데이터 기준 스냅샷 보관 (수정 셀 감지용)
             st.session_state['doc_items_orig'] = clean_df(items_df).copy()
         else:
             st.session_state['doc_items_orig'] = pd.DataFrame()
@@ -1380,7 +1399,6 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            # 수정한 칸 감지 및 형광노랑 플래그 부여
             orig_df = st.session_state.get('doc_items_orig', pd.DataFrame())
             edited_records = clean_df(edited_df).to_dict("records")
             
