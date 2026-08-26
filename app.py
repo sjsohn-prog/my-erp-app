@@ -63,7 +63,7 @@ TRANSLATIONS = {
         "menu_db": "마스터 DB 관리",
         "menu_history": "발행 이력 조회",
         "doc_gen_title": "📄 스마트 서류 자동 생성 시스템",
-        "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원합니다.",
+        "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
         "ai_mode_label": "AI 분석 엔진 선택",
         "mode_flash": "⚡ Gemini 3.6 Flash (고속)",
@@ -71,8 +71,8 @@ TRANSLATIONS = {
         "upload_doc_label": "문서 업로드 (PDF, JPG, PNG)",
         "btn_ai_parse": "✨ AI 문서 분석",
         "btn_reset": "🔄 서류 입력 초기화",
-        "hdr_title": "📌 {doc_type} 헤더 입력",
-        "items_title": "📦 품목 상세 내역",
+        "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
+        "items_title": "📦 품목 상세 내역 (표 내부를 직접 클릭하여 수정/입력 가능)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 관리대장 및 DB 등록",
         "pwd_save_label": "🔒 비밀번호",
@@ -118,7 +118,7 @@ TRANSLATIONS = {
         "menu_db": "Master DB Management",
         "menu_history": "Issue History",
         "doc_gen_title": "📄 Smart Document Generation System",
-        "doc_gen_desc": "Supports fixed template & Master DB linked generation based on AI document analysis.",
+        "doc_gen_desc": "Supports fixed template & Master DB linked generation. All fields are 100% human-editable.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
         "ai_mode_label": "Select AI Engine",
         "mode_flash": "⚡ Gemini 3.6 Flash (Fast)",
@@ -126,8 +126,8 @@ TRANSLATIONS = {
         "upload_doc_label": "Upload Document (PDF, JPG, PNG)",
         "btn_ai_parse": "✨ Analyze Document",
         "btn_reset": "🔄 Reset Form",
-        "hdr_title": "📌 {doc_type} Header Details",
-        "items_title": "📦 Line Item Details",
+        "hdr_title": "📌 {doc_type} Header Details (Direct input supported)",
+        "items_title": "📦 Line Item Details (Click table cells directly to edit)",
         "remarks_title": "📝 Remarks & Deviations",
         "reg_title": "📌 Save to Ledger & Master DB",
         "pwd_save_label": "🔒 Password",
@@ -420,7 +420,7 @@ INLINE_HTML_TEMPLATE = """
                 <td class="col-no">{{ loop.index }}</td>
                 <td class="col-desc">
                     {% if item.ItemName %}<strong>{{ item.ItemName }}</strong><br>{% endif %}
-                    {% if item.Description %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
+                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}{% endif %}
                     {% if item.Remarks %}<br><span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks }}</em></span>{% endif %}
                 </td>
                 <td class="col-qty">{{ item.Qty }}</td>
@@ -592,7 +592,7 @@ def clean_str(val):
     s = str(val).strip()
     return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
 
-# ⭐ 기본 0번째 옵션은 항상 빈칸("")으로 노출되는 단일 통합 드롭다운 헬퍼 함수
+# ⭐ 기본 0번째 옵션은 항상 빈칸("")으로 노출되며 '직접 입력'을 지원하는 통합 드롭다운 헬퍼 함수
 def render_unified_input(label, current_val, base_options, key_prefix):
     curr = clean_str(current_val)
     options = [""]  # 항상 Index 0은 빈칸("")으로 노출
@@ -611,11 +611,9 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     sel_key = f"{key_prefix}_sel"
     txt_key = f"{key_prefix}_txt"
     
-    # 세션에 해당 위젯 상태가 없으면 초기 세팅
     if sel_key not in st.session_state:
         st.session_state[sel_key] = curr if curr in options else ""
         
-    # 만약 AI 분석으로 curr 값이 업데이트 되었다면, selectbox가 해당 값을 가리키도록 유연하게 연동
     if curr and curr in options and st.session_state.get(sel_key) != curr and st.session_state.get(sel_key) != direct_label:
         st.session_state[sel_key] = curr
 
@@ -677,6 +675,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mo
 
         3. ITEM TABLE EXTRACTION:
            - Parse ALL rows inside line items table: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
+           - Extract exact Model / Item Name into "ItemName" or "Description". Do not leave both empty if item exists.
 
         Extract details into valid JSON EXACTLY matching this structure:
         {{
@@ -836,7 +835,7 @@ if menu == "서류 통합 생성":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        # ⭐ 위젯 세션 키에 직접 AI 분석 결과 반영 (화면에 바로 선택 활성화)
+        # 위젯 세션 키에 직접 AI 분석 결과 반영
         st.session_state['to_sel'] = to_field_val
         st.session_state['attn_sel'] = attn_field_val
         st.session_state['project_title_sel'] = project_val
@@ -867,7 +866,14 @@ if menu == "서류 통합 생성":
             items_df = items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]]
 
             for idx, row in items_df.iterrows():
-                pno, iname, desc = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', ''))
+                pno = clean_str(row.get('PartNo', ''))
+                iname = clean_str(row.get('ItemName', ''))
+                desc = clean_str(row.get('Description', ''))
+                
+                # 자재명이 한쪽 필드에만 있는 경우 양쪽 상호 보완
+                if not iname and desc: iname = desc
+                if not desc and iname: desc = iname
+                
                 items_df.at[idx, 'PartNo'] = pno
                 items_df.at[idx, 'ItemName'] = iname
                 items_df.at[idx, 'Description'] = desc
@@ -883,8 +889,11 @@ if menu == "서류 통합 생성":
                     if not pno: items_df.at[idx, 'PartNo'] = clean_str(m.get('PartNo', ''))
                     if not iname: items_df.at[idx, 'ItemName'] = clean_str(m.get('ItemName', ''))
                     if not desc: items_df.at[idx, 'Description'] = clean_str(m.get('Description', ''))
+                
+                qty_val = float(row.get('Qty', 0)) if row.get('Qty') else 0
+                unit_p_val = float(row.get('UnitPrice', 0.0)) if row.get('UnitPrice') else 0.0
                 if float(row.get('Amount', 0.0)) == 0.0:
-                    items_df.at[idx, 'Amount'] = float(items_df.at[idx, 'Qty']) * float(items_df.at[idx, 'UnitPrice'])
+                    items_df.at[idx, 'Amount'] = qty_val * unit_p_val
             st.session_state['doc_items'] = clean_df(items_df)
         st.session_state['bg_task']['status'] = 'idle'
         st.success("✅ AI Analysis Complete & Roles Auto-Reversed.")
@@ -901,7 +910,7 @@ if menu == "서류 통합 생성":
                 start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name.split('.')[-1].lower(), doc_type, selected_mode))
                 st.rerun()
 
-        # ⭐ 초기화 시 모든 필드를 깨끗한 빈칸("")으로 동기화 초기화
+        # 초기화 버튼
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": 0, "UnitPrice": 0.0, "Amount": 0.0, "Remarks": ""}])
@@ -914,11 +923,11 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
-        # ⭐ 모든 헤더 필드를 단일 파란색 카드 컨테이너 내부로 영구 고정
+        # 헤더 파란색 카드 컨테이너
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
-            # ⭐ 모든 헤더 입력 항목: 기본값 빈칸("") + 옆 화살표 드롭다운 통합 위젯
+            # 모든 헤더 입력 항목 (드롭다운 + 직접 입력 지원)
             to_name = render_unified_input("To", st.session_state['doc_info'].get("to", ""), history["to_list"], "to")
             attn_name = render_unified_input("Attention", st.session_state['doc_info'].get("attn", ""), history["attns"], "attn")
             project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
@@ -930,7 +939,6 @@ if menu == "서류 통합 생성":
             pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')] if st.session_state.get('user_email') else [], "pic")
             ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), history["ships"], "ship")
 
-            # Flag & Class 파싱/입력값 통합 드롭다운
             curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
             if "/" in curr_fc:
                 fc_parts = curr_fc.split("/", 1)
@@ -954,23 +962,19 @@ if menu == "서류 통합 생성":
             else:
                 flag_class = c_str
 
-            # Currency 드롭다운
             currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            part_no_list = [""] + [x for x in db["PartNo"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "PartNo" in db.columns else [""]
-            item_name_list = [""] + [x for x in db["ItemName"].dropna().unique().tolist() if str(x).strip()] if not db.empty and "ItemName" in db.columns else [""]
-
-            # ⭐ Q'ty 항목 min_value=0 세팅
+            # ⭐ 100% 인간 수정을 위해 모든 자재 컬럼을 자유 텍스트(TextColumn)로 구성
             column_config = {
-                "PartNo": st.column_config.SelectboxColumn("PartNo", options=part_no_list, width=70),
-                "ItemName": st.column_config.SelectboxColumn("Item Name", options=item_name_list, width=85),
-                "Description": st.column_config.TextColumn("Description", width=105),
-                "Qty": st.column_config.NumberColumn("Q'ty", format="%,d", min_value=0, width=45),
-                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width=70),
-                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width=75),
-                "Remarks": st.column_config.TextColumn("Remarks", width=70),
+                "PartNo": st.column_config.TextColumn("PartNo", width="small", help="직접 클릭하여 입력/수정"),
+                "ItemName": st.column_config.TextColumn("Item Name", width="medium", help="직접 클릭하여 입력/수정"),
+                "Description": st.column_config.TextColumn("Description", width="large", help="직접 클릭하여 입력/수정"),
+                "Qty": st.column_config.NumberColumn("Q'ty", format="%d", min_value=0, width="small"),
+                "UnitPrice": st.column_config.NumberColumn("Unit Price", format="%,d", min_value=0, width="medium"),
+                "Amount": st.column_config.NumberColumn("Amount", format="%,d", min_value=0, width="medium"),
+                "Remarks": st.column_config.TextColumn("Remarks", width="small", help="직접 클릭하여 입력/수정"),
             }
 
             df_current = clean_df(st.session_state['doc_items'].copy())
@@ -980,12 +984,18 @@ if menu == "서류 통합 생성":
                 if c not in df_current.columns: df_current[c] = "" if c not in ["Qty", "UnitPrice", "Amount"] else 0
             df_current = clean_df(df_current[cols_order])
 
+            # 금액 자동 연산
             for i, row in df_current.iterrows():
-                if (float(row.get('Amount', 0.0)) == 0.0) and (float(row.get('UnitPrice', 0.0)) > 0):
-                    df_current.at[i, 'Amount'] = float(row.get('Qty', 0)) * float(row.get('UnitPrice', 0.0))
+                try:
+                    qty = float(row.get('Qty', 0))
+                    u_price = float(str(row.get('UnitPrice', 0)).replace(',', ''))
+                    if float(str(row.get('Amount', 0)).replace(',', '')) == 0.0 and u_price > 0:
+                        df_current.at[i, 'Amount'] = qty * u_price
+                except (ValueError, TypeError): pass
 
             edited_df = clean_df(st.data_editor(df_current, column_config=column_config, num_rows="dynamic", use_container_width=True))
 
+            # 데이터 변경 시 DB 매칭 및 금액 자동 계산 업데이트
             for i, row in edited_df.iterrows():
                 pno = clean_str(row.get('PartNo'))
                 iname = clean_str(row.get('ItemName'))
@@ -1001,22 +1011,23 @@ if menu == "서류 통합 생성":
                     if not iname: edited_df.at[i, 'ItemName'] = clean_str(match_row.get('ItemName', ''))
                     if not clean_str(row.get('Description')): edited_df.at[i, 'Description'] = clean_str(match_row.get('Description', ''))
                     
-                    u_p_curr = float(row.get('UnitPrice', 0.0))
+                    try:
+                        u_p_curr = float(str(row.get('UnitPrice', 0)).replace(',', ''))
+                    except ValueError: u_p_curr = 0.0
+                    
                     if u_p_curr == 0.0:
                         u_p = float(match_row.get('UnitPrice', 0.0))
                         edited_df.at[i, 'UnitPrice'] = u_p
-                        if float(edited_df.at[i, 'Amount']) == 0.0:
-                            edited_df.at[i, 'Amount'] = u_p * float(row.get('Qty', 0))
 
             if "Amount" in edited_df.columns:
-                total_val = pd.to_numeric(edited_df["Amount"], errors='coerce').fillna(0).sum()
+                total_val = pd.to_numeric(edited_df["Amount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0).sum()
                 st.markdown(f'<div class="total-badge">Total Amount: {currency if currency else "KRW"} {total_val:,.2f}</div>', unsafe_allow_html=True)
             else: total_val = 0.0
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("remarks_title")}</div>', unsafe_allow_html=True)
             bottom_remarks = st.text_area("Remarks", value=st.session_state['doc_info'].get("bottom_remarks", ""), height=80, label_visibility="collapsed")
             
-            # 저장 비밀번호 (0915 검증)
+            # 저장 및 관리대장 등록
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
             
@@ -1028,14 +1039,14 @@ if menu == "서류 통합 생성":
                     st.session_state['doc_info'] = {"to": to_name, "attn": attn_name, "project_title": project_title, "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date": date_str, "pic": pic_name, "your_ref": your_ref, "ship": ship_name, "payment_due": payment_due, "currency": currency, "bottom_remarks": bottom_remarks}
                     st.session_state['doc_items'] = clean_df(edited_df)
                     db_items = edited_df[['PartNo', 'ItemName', 'Description', 'UnitPrice', 'Remarks']].copy()
-                    db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'], errors='coerce').fillna(0.0)
+                    db_items['UnitPrice'] = pd.to_numeric(db_items['UnitPrice'].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
                     safe_merge_db(db, db_items).to_csv(DB_FILE, index=False)
                     
                     save_to_ledger(doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, total_val, len(edited_df), current_user)
                     save_history(ship_name, to_name, attn_name)
                     st.success(t("reg_success", user=current_user))
 
-    # ⭐ 우측 PDF 미리보기 파란색 카드 내 고정 및 실시간 동기화
+    # 우측 PDF 미리보기
     with right_col:
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
