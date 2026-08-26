@@ -394,7 +394,6 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# 12번 요구사항: 상단 우측 위치 KR / EN 언어 스위치
 top_l_col, top_r_col = st.columns([8.5, 1.5])
 with top_r_col:
     selected_lang = st.radio("Language", ["KR", "EN"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
@@ -454,7 +453,7 @@ if not st.session_state['authenticated']:
 
 # ==========================================
 # 2. 내장형 PDF HTML 템플릿
-# (상단 굵은줄 2.5px 바로 밑에 헤더표 밀착 & 헤더표 테두리 1.2px)
+# (테이블 행 분할 방지 tr { page-break-inside: avoid } 적용)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -510,7 +509,7 @@ INLINE_HTML_TEMPLATE = """
         text-decoration: underline;
     }
 
-    /* 헤더 정보 표: 상단 구분선에 바짝 밀착되며, 본문보다 굵은 1.2px 테두리 */
+    /* 헤더 정보 표: 상단 구분선에 바짝 밀착되며 1.2px 테두리 */
     table.hdr-table { 
         width: 100%; 
         border-collapse: collapse; 
@@ -523,9 +522,31 @@ INLINE_HTML_TEMPLATE = """
         vertical-align: middle; 
     }
 
-    /* 품목 및 내역 표: 슬림한 0.6px 테두리 */
-    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; }
-    table.data-table th, table.data-table td { border: 0.6px solid #000; padding: 3px 5px; vertical-align: middle; }
+    /* 품목 및 내역 표: 0.6px 테두리 & 페이지 구분 시 행 잘림 방지 */
+    table.data-table { 
+        width: 100%; 
+        border-collapse: collapse; 
+        margin-bottom: 3px; 
+        page-break-inside: auto;
+    }
+    table.data-table thead {
+        display: table-header-group;
+    }
+    table.data-table tbody {
+        display: table-row-group;
+    }
+    /* 핵심: 행 단위 잘림을 차단하여 아래 테두리 미닫힘 및 No. 번호 누락 방지 */
+    table.data-table tr { 
+        border: 0.6px solid #000; 
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+    table.data-table th, table.data-table td { 
+        border: 0.6px solid #000; 
+        padding: 3px 5px; 
+        vertical-align: middle; 
+    }
+
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
@@ -537,7 +558,7 @@ INLINE_HTML_TEMPLATE = """
     .col-price { width: 16%; text-align: right !important; }
     .col-amt { width: 16%; text-align: right !important; }
     
-    .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; }
+    .remarks-box { border: 0.6px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
     .total-row-td { border: 0.6px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
@@ -801,7 +822,7 @@ if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 # ==========================================
-# 4. AI 파싱 엔진 (필드 정밀 추출 프롬프트 정비)
+# 4. AI 파싱 엔진
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip():
@@ -1016,7 +1037,7 @@ elif task['status'] == 'error' and menu == "서류 통합 생성":
     st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (수신/발신 역할 자동 반전 및 화면 세션 스태이트 연결 완벽 보장)
+# 6. 서류 통합 생성
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -1039,7 +1060,7 @@ if menu == "서류 통합 생성":
         recipient_check = (recip_comp + " " + recip_attn).lower()
         is_incoming_to_us = any(kw in recipient_check for kw in ["1solution", "원솔루션", "one solution"]) or (ALLOWED_DOMAIN in recipient_check)
         
-        # 외부 고객사/협력업체 문서가 원솔루션으로 들어온 경우 -> 상대방을 To/Attn으로 지정하고 PIC를 우리 담당자로 반전
+        # 역할 자동 반전 로직
         if is_incoming_to_us:
             to_field_val = issuer_comp or recip_comp
             attn_field_val = issuer_pic
@@ -1077,7 +1098,6 @@ if menu == "서류 통합 생성":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        # 화면 입력 위젯 세션 값 강제 업데이트
         def set_widget_val(prefix, val):
             st.session_state[f"{prefix}_sel"] = val
             st.session_state[f"{prefix}_txt"] = val
@@ -1141,7 +1161,7 @@ if menu == "서류 통합 생성":
 
         history = load_history()
         
-        # 1번 요구사항: 입력 폼 좌/우 2컬럼 배치
+        # 헤더 2컬럼 레이아웃
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("hdr_title", doc_type=doc_type)}</div>', unsafe_allow_html=True)
             
@@ -1331,7 +1351,6 @@ if menu == "서류 통합 생성":
         with st.container(border=True):
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             
-            # 8번 요구사항: 빈 행 자동 제거
             pdf_formatted_items = prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
