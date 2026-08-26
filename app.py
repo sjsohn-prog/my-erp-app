@@ -182,6 +182,7 @@ TRANSLATIONS = {
         "menu_doc_ledger": "서류 관리 대장 (자사 / 고객사)",
         "menu_item_master": "자재 단가 마스터 DB",
         "menu_history": "서류 이력",
+        "menu_admin": "🛠️ 관리자 메뉴",
         "doc_gen_title": "📄 자사 서류 스마트 자동 생성 시스템",
         "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
@@ -234,6 +235,7 @@ TRANSLATIONS = {
         "menu_doc_ledger": "Document Ledger (Our / Customer)",
         "menu_item_master": "Item Price Master DB",
         "menu_history": "Document History",
+        "menu_admin": "🛠️ Admin Menu",
         "doc_gen_title": "📄 Smart Document Generation System",
         "doc_gen_desc": "Supports fixed template & DB linked generation. All fields are 100% human-editable.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
@@ -781,7 +783,6 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-# DB 초기화 (doc_db_cols 및 item_master_cols 보장)
 our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
 clean_df(our_db_init).to_csv(OUR_DB_FILE, index=False)
 
@@ -889,7 +890,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 무료 요청 한도(Quota)를 초과했습니다. 약 30초 후 다시 시도하시거나, Google AI Studio에서 새 API Key/결제 계정을 등록해 주세요. (상세: {last_err})")
 
-# 1) 자사 서류 생성용 파싱
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -957,7 +957,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 2) 서류 대장(헤더 요약) 파싱
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -1021,7 +1020,6 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 3) 자재 단가 마스터 파싱 (더주원 등 수집용)
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -1144,12 +1142,13 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history")]
+menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
 if menu_selection == t("menu_gen"): menu = "자사 서류 생성"
 elif menu_selection == t("menu_doc_ledger"): menu = "서류 관리 대장"
 elif menu_selection == t("menu_item_master"): menu = "자재 단가 마스터 DB"
+elif menu_selection == t("menu_admin"): menu = "관리자 메뉴"
 else: menu = "서류 이력"
 
 if 'current_menu' not in st.session_state:
@@ -1599,7 +1598,114 @@ elif menu == "자재 단가 마스터 DB":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력
+# 9. 관리자 메뉴 (Admin Menu)
+# ==========================================
+elif menu == "관리자 메뉴":
+    st.markdown("""<div class="main-header"><h1>🛠️ 관리자 통합 전용 메뉴 (Admin Control)</h1><p>DB 데이터 수정/삭제 및 시스템 저장소/대장 초기화를 수행합니다.</p></div>""", unsafe_allow_html=True)
+
+    if 'admin_unlocked' not in st.session_state:
+        st.session_state['admin_unlocked'] = False
+
+    if not st.session_state['admin_unlocked']:
+        with st.container(border=True):
+            st.markdown("### 🔒 관리자 인증")
+            admin_input_pwd = st.text_input("관리자 비밀번호를 입력하세요", type="password", key="admin_auth_pwd_field")
+            if st.button("🔓 인증 및 접속", key="btn_admin_auth_unlock"):
+                if admin_input_pwd == ADMIN_PASSWORD:
+                    st.session_state['admin_unlocked'] = True
+                    st.success("✅ 관리자 권한이 성공적으로 인증되었습니다.")
+                    st.rerun()
+                else:
+                    st.error(t("pwd_err"))
+    else:
+        col_hdr_a, col_hdr_b = st.columns([8, 2])
+        with col_hdr_b:
+            if st.button("🔒 관리자 잠금", key="btn_admin_lock"):
+                st.session_state['admin_unlocked'] = False
+                st.rerun()
+
+        admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
+            "🏢 자사 서류 대장 가공", 
+            "🤝 고객사 서류 대장 가공", 
+            "📦 자재 단가 마스터 가공", 
+            "🚨 전체 초기화 및 저장소 관리"
+        ])
+
+        with admin_tab1:
+            st.markdown("### 🏢 자사 서류 대장 수정 및 삭제")
+            our_df_admin = clean_df(ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols))
+            edited_our_admin = st.data_editor(our_df_admin, num_rows="dynamic", use_container_width=True, key="admin_our_editor")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("💾 자사 서류 대장 변경사항 반영", key="btn_admin_save_our"):
+                    clean_df(edited_our_admin).to_csv(OUR_DB_FILE, index=False)
+                    st.success("✅ 자사 서류 대장이 저장되었습니다.")
+                    st.rerun()
+            with col2:
+                if st.button("🚨 자사 서류 대장 전체 초기화", key="btn_admin_reset_our"):
+                    pd.DataFrame(columns=doc_db_cols).to_csv(OUR_DB_FILE, index=False)
+                    st.success("🚨 자사 서류 대장이 초기화되었습니다.")
+                    st.rerun()
+
+        with admin_tab2:
+            st.markdown("### 🤝 고객사 / 공급사 서류 대장 수정 및 삭제")
+            cust_df_admin = clean_df(ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols))
+            edited_cust_admin = st.data_editor(cust_df_admin, num_rows="dynamic", use_container_width=True, key="admin_cust_editor")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("💾 고객사 서류 대장 변경사항 반영", key="btn_admin_save_cust"):
+                    clean_df(edited_cust_admin).to_csv(CUSTOMER_DB_FILE, index=False)
+                    st.success("✅ 고객사 서류 대장이 저장되었습니다.")
+                    st.rerun()
+            with col2:
+                if st.button("🚨 고객사 서류 대장 전체 초기화", key="btn_admin_reset_cust"):
+                    pd.DataFrame(columns=doc_db_cols).to_csv(CUSTOMER_DB_FILE, index=False)
+                    st.success("🚨 고객사 서류 대장이 초기화되었습니다.")
+                    st.rerun()
+
+        with admin_tab3:
+            st.markdown("### 📦 자재 단가 마스터 DB 수정 및 삭제")
+            item_df_admin = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
+            edited_item_admin = st.data_editor(item_df_admin, num_rows="dynamic", use_container_width=True, key="admin_item_editor")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("💾 자재 마스터 DB 변경사항 반영", key="btn_admin_save_item"):
+                    clean_df(edited_item_admin).to_csv(ITEM_MASTER_FILE, index=False)
+                    st.success("✅ 자재 마스터 DB가 저장되었습니다.")
+                    st.rerun()
+            with col2:
+                if st.button("🚨 자재 마스터 DB 전체 초기화", key="btn_admin_reset_item"):
+                    pd.DataFrame(columns=item_master_cols).to_csv(ITEM_MASTER_FILE, index=False)
+                    st.success("🚨 자재 마스터 DB가 초기화되었습니다.")
+                    st.rerun()
+
+        with admin_tab4:
+            st.markdown("### 🚨 저장소 파일 및 인풋/히스토리 완전 초기화")
+            st.warning("⚠️ 아래 실행 시 삭제된 파일 및 데이터는 복구할 수 없습니다.")
+            
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                if st.button("🗑️ 저장된 PDF 및 AI 인풋 파일 전체 삭제", key="btn_admin_clear_files"):
+                    for f in os.listdir("output"):
+                        if f.endswith('.pdf'):
+                            try: os.remove(os.path.join("output", f))
+                            except Exception: pass
+                    for f in os.listdir(INPUT_DOCS_DIR):
+                        try: os.remove(os.path.join(INPUT_DOCS_DIR, f))
+                        except Exception: pass
+                    st.success("✅ output 및 input_docs 파일이 모두 삭제되었습니다.")
+                    st.rerun()
+
+            with col_r2:
+                if st.button("🗑️ 선박명/거래처 입력 히스토리 전체 삭제", key="btn_admin_clear_history"):
+                    if os.path.exists(HISTORY_FILE):
+                        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                            json.dump({"ships": [], "to_list": [], "attns": []}, f, ensure_ascii=False, indent=2)
+                    st.success("✅ 자동완성 히스토리가 초기화되었습니다.")
+                    st.rerun()
+
+# ==========================================
+# 10. 서류 이력
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 조회하고 다운로드합니다.</p></div>""", unsafe_allow_html=True)
