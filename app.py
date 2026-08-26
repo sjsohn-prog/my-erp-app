@@ -64,23 +64,16 @@ def safe_float(val, default=0.0):
             return default
     return default
 
-# 통화 코드별 통화 기호 추출 헬퍼 함수
+# 통화 기호 추출 헬퍼 함수
 def get_currency_symbol(code):
     c = clean_str(code).upper()
     symbols = {
-        "USD": "$",
-        "KRW": "₩",
-        "EUR": "€",
-        "JPY": "¥",
-        "CNY": "¥",
-        "SGD": "S$",
-        "GBP": "£",
-        "HKD": "HK$",
-        "AED": "AED "
+        "USD": "$", "KRW": "₩", "EUR": "€", "JPY": "¥",
+        "CNY": "¥", "SGD": "S$", "GBP": "£", "HKD": "HK$", "AED": "AED "
     }
     return symbols.get(c, f"{c} " if c else "")
 
-# CSV 파일 안전 로딩 헬퍼 함수
+# CSV 파일 안전 로딩 (EmptyDataError 방어)
 def safe_read_csv(filepath, default_cols=None):
     if default_cols is None:
         default_cols = []
@@ -94,7 +87,7 @@ def safe_read_csv(filepath, default_cols=None):
     except (pd.errors.EmptyDataError, Exception):
         return pd.DataFrame(columns=default_cols)
 
-# 실시간 환율 정보 조회 함수 (USD 기준 API)
+# 실시간 환율 정보 조회 함수
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
     try:
@@ -121,7 +114,7 @@ def get_rate_per_usd(code, live_rates):
     return 1.0
 
 # ==========================================
-# 0-1. i18n 다국어 사전 (KR / EN)
+# 0-1. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -134,7 +127,6 @@ TRANSLATIONS = {
         "menu_gen": "서류 통합 생성",
         "menu_ledger": "서류 관리대장",
         "menu_db": "마스터 DB 관리",
-        "menu_history": "발행 이력 조회",
         "doc_gen_title": "📄 스마트 서류 자동 생성 시스템",
         "doc_gen_desc": "AI 문서 분석을 기반으로 고정 양식 및 마스터 DB 연동 생성을 지원하며, 모든 항목은 직접 수정 가능합니다.",
         "ai_expander_title": "⚡ AI 문서 자동 분석 (클릭하여 열기) 🔽",
@@ -177,7 +169,6 @@ TRANSLATIONS = {
         "pwd_err": "❌ 비밀번호가 올바르지 않습니다.",
         "reg_success": "🎉 서류 관리대장 및 마스터 DB 등록 완료 (작성자: {user})",
         "all": "전체",
-        "pwd_ph": "비밀번호 입력..."
     },
     "EN": {
         "subtitle": "In-house Document Management System",
@@ -189,7 +180,6 @@ TRANSLATIONS = {
         "menu_gen": "Document Generator",
         "menu_ledger": "Document Ledger",
         "menu_db": "Master DB Management",
-        "menu_history": "Issue History",
         "doc_gen_title": "📄 Smart Document Generation System",
         "doc_gen_desc": "Supports fixed template & Master DB linked generation. All fields are 100% human-editable.",
         "ai_expander_title": "⚡ AI Document Auto-Analysis (Click to Expand) 🔽",
@@ -232,7 +222,6 @@ TRANSLATIONS = {
         "pwd_err": "❌ Incorrect password.",
         "reg_success": "🎉 Saved to Document Ledger & Master DB (Creator: {user})",
         "all": "All",
-        "pwd_ph": "Enter password..."
     }
 }
 
@@ -346,7 +335,6 @@ custom_css = """
         margin-bottom: 12px !important;
     }
     .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
-    .stButton > button:disabled { background: #64748B !important; color: #F1F5F9 !important; cursor: not-allowed !important; }
     .total-badge { background: var(--secondary-background-color); border: 2px solid #0284C7; padding: 12px 16px; border-radius: 10px; text-align: right; font-size: 1.15rem; font-weight: 800; color: #0284C7; margin-top: 10px; }
     .total-subbadge { background: rgba(2, 132, 199, 0.1); border: 1px dashed #0284C7; padding: 8px 12px; border-radius: 8px; text-align: right; font-size: 0.95rem; font-weight: 700; color: #38BDF8; margin-top: 6px; }
     .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
@@ -416,7 +404,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (미니 헤더 & 페이지 번호 추가)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -425,9 +413,45 @@ INLINE_HTML_TEMPLATE = """
 <meta charset="UTF-8">
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-    @page { size: A4; margin: 5mm 5mm; }
+    
+    /* ⭐ 페이지 여백 및 반복 디자인 (머리글/바닥글) 설정 */
+    @page { 
+        size: A4; 
+        margin: 25mm 8mm 15mm 8mm; /* 다중 페이지 상단 여백 확보 */
+        
+        /* 페이지 하단 중앙 번호표 */
+        @bottom-center {
+            content: "- " counter(page) " -";
+            font-size: 9pt; color: #666; font-family: 'Noto Sans KR', sans-serif;
+        }
+        
+        /* 2페이지부터 반복될 상단 미니 헤더 위치 */
+        @top-center {
+            content: element(repeat-header);
+        }
+    }
+    
+    /* 첫 페이지는 고유의 큰 헤더가 있으므로 반복 헤더 숨김 및 여백 조정 */
+    @page :first { 
+        margin-top: 8mm; 
+        @top-center { content: none; } 
+    }
+
     body { font-family: 'Noto Sans KR', 'Malgun Gothic', 'Nanum Gothic', sans-serif; font-size: 8.5pt; line-height: 1.25; color: #000; }
     
+    /* ⭐ 반복 미니 헤더 컨테이너 요소 */
+    div.repeat-header {
+        position: running(repeat-header);
+        width: 100%;
+        border-bottom: 1.5px solid #0F172A;
+        padding-bottom: 5px;
+        text-align: left;
+    }
+    div.repeat-header img { height: 22px; vertical-align: middle; opacity: 0.9; }
+    div.repeat-header .company-name-small { font-size: 11pt; font-weight: 800; color: #0284C7; font-family: sans-serif; vertical-align: middle; }
+    div.repeat-header .doc-type-small { float: right; font-size: 9pt; font-weight: bold; color: #555; padding-top: 4px; letter-spacing: 1px; text-transform: uppercase; }
+
+    /* 첫 페이지 대형 헤더 요소 */
     .header-table { width: 100%; border-collapse: collapse; border: none; margin-bottom: 4px; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
@@ -450,6 +474,18 @@ INLINE_HTML_TEMPLATE = """
 </style>
 </head>
 <body>
+
+    <!-- ⭐ 반복 미니 헤더 블록 (2페이지부터 나타남) -->
+    <div class="repeat-header">
+        {% if logo_base64 %}
+        <img src="data:image/png;base64,{{ logo_base64 }}" />
+        {% else %}
+        <span class="company-name-small">ONE SOLUTION CO., LTD.</span>
+        {% endif %}
+        <span class="doc-type-small">{{ doc_title }}{% if our_ref %} | {{ our_ref }}{% endif %}</span>
+    </div>
+
+    <!-- 첫 페이지 메인 타이틀 블록 -->
     <table class="header-table">
         <tr>
             <td style="width: 45%; text-align: left;">
@@ -713,36 +749,6 @@ if 'doc_info' not in st.session_state:
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
-def generate_pdf(context):
-    from weasyprint import HTML
-    logo_path = os.path.abspath("logo.png")
-    if os.path.exists(logo_path):
-        with open(logo_path, "rb") as f: context["logo_base64"] = base64.b64encode(f.read()).decode('utf-8')
-    else: context["logo_base64"] = None
-    
-    env = Environment()
-    template = env.from_string(INLINE_HTML_TEMPLATE)
-    html_out = template.render(context)
-    
-    pdf_bytes = HTML(string=html_out).write_pdf()
-    return pdf_bytes
-
-def render_pdf_images(pdf_bytes):
-    images = []
-    try:
-        import fitz
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        for page in doc:
-            pix = page.get_pixmap(dpi=150)
-            images.append(pix.tobytes("png"))
-    except Exception: pass
-    return images
-
-def clean_str(val):
-    if pd.isna(val) or val is None: return ""
-    s = str(val).strip()
-    return "" if s.lower() in ['nan', 'none', 'null', '<na>', 'nan.0', 'none.0'] else s
-
 def render_unified_input(label, current_val, base_options, key_prefix):
     display_label = f"▾ {label}" if not label.startswith("▾") else label
     curr = clean_str(current_val)
@@ -783,8 +789,11 @@ def get_ai_response(api_key, content_list, mode="flash"):
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    # ⭐ 구버전 gemini-1.5-flash 완전 삭제 및 gemini-3.6-flash 모델 고정
-    candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash']
+    # ⭐ 구버전 fallback 제거, 명확한 gemini-3.6-flash 엔진 고정
+    if mode == "thinking":
+        candidate_models = ['gemini-3.6-flash-thinking', 'gemini-3.6-flash', 'gemini-2.5-flash']
+    else:
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.6-flash-thinking', 'gemini-2.5-flash']
 
     last_err = None
     for model_name in candidate_models:
@@ -896,7 +905,7 @@ def start_bg_thread(target_func, args):
     t.start()
 
 # ==========================================
-# 5. UI 및 사이드바 (다국어 & 실시간 환율 연동)
+# 5. UI 및 사이드바
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -932,7 +941,7 @@ elif menu_selection == t("menu_ledger"): menu = "서류 관리대장"
 elif menu_selection == t("menu_db"): menu = "마스터 DB 관리"
 else: menu = "발행 이력 조회"
 
-# ⭐ 메뉴 변경 시 잔여 백그라운드 에러 자동 청소 로직
+# ⭐ 메뉴 변경 시 기존 에러 잔상 깔끔하게 지우기
 if 'current_menu' not in st.session_state:
     st.session_state['current_menu'] = menu
 elif st.session_state['current_menu'] != menu:
@@ -1302,7 +1311,6 @@ if menu == "서류 통합 생성":
 
             edited_df = clean_df(edited_df)
 
-            # ⭐ [Total Amount 연산 보원 및 수정 안전성 강화]
             calc_total_val = edited_df["Amount"].apply(safe_float).sum()
             fmt_tot = f"{calc_total_val:,.2f}" if curr_currency not in ["KRW", "JPY"] else f"{calc_total_val:,.0f}"
             default_total_str = f"{curr_sym}{fmt_tot}"
@@ -1316,7 +1324,6 @@ if menu == "서류 통합 생성":
             final_total_str = custom_total_input.strip() if custom_total_input.strip() else default_total_str
             vat_note_str = vat_note_input.strip()
 
-            # 이중 통화 환산 배지
             if curr_currency == "KRW":
                 converted_val = calc_total_val / usd_krw if usd_krw else 0
                 st.markdown(f'<div class="total-subbadge">💡 Approximate Value in USD: <b>USD ${converted_val:,.2f}</b> (At Rate {usd_krw:,.2f})</div>', unsafe_allow_html=True)
