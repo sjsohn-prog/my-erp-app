@@ -22,10 +22,14 @@ ADMIN_PASSWORD = "admin0915"
 SAVE_PASSWORD = "0915"
 DEFAULT_GEMINI_KEY = ""
 
-FLAG_OPTIONS = ["선택 안함", "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
+# ⭐ FLAG 및 Class 선택 옵션 "Choose an option" 통일
+FLAG_OPTIONS = [
+    "Choose an option", "Panama", "Liberia", "Marshall Islands", "Hong Kong", 
+    "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
+]
 
 CLASS_OPTIONS = [
-    "선택 안함", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
+    "Choose an option", "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
     "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
 ]
 
@@ -602,7 +606,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
             continue
     raise Exception(f"AI 모델 호출 실패: {last_err}")
 
-# ⭐ 입체적 수발신 회사 및 담당자 추출 프롬프트
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_type, doc_type, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -722,7 +725,7 @@ if is_running:
 elif task['status'] == 'error': st.error(f"❌ AI Error: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 통합 생성 (⭐ 유기적 수발신 및 Attention/PIC 입체 반전 적용)
+# 6. 서류 통합 생성 (⭐ 입체적 수발신 반전 적용)
 # ==========================================
 if menu == "서류 통합 생성":
     doc_type = st.sidebar.selectbox(
@@ -737,7 +740,7 @@ if menu == "서류 통합 생성":
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         
-        # ⭐ 수신자/발행자 교대 검증
+        # 수신자/발행자 입체 교대 검증
         recip_comp = ai_data.get("recipient_company", "") or ai_data.get("to_name", "")
         recip_attn = ai_data.get("recipient_attn", "") or ai_data.get("attn_name", "")
         issuer_comp = ai_data.get("issuer_company", "")
@@ -758,7 +761,6 @@ if menu == "서류 통합 생성":
             your_ref_val = ai_data.get("our_ref") or ai_data.get("your_ref", "")
             our_ref_val = ""
         else:
-            # 당사가 발송했던 문서이거나 일반 발송용 문서인 경우
             to_field_val = recip_comp
             attn_field_val = recip_attn
             pic_field_val = issuer_pic if issuer_pic else st.session_state.get('user_email', '')
@@ -846,14 +848,15 @@ if menu == "서류 통합 생성":
         sel_ship = st.selectbox("Ship's Name", options=[""] + history["ships"])
         ship_name = st.text_input("Ship's Name", value=st.session_state['doc_info']["ship"] if not sel_ship else sel_ship)
 
+        # ⭐ FLAG 및 Class 선택 드롭다운 "Choose an option" 통일 적용
         col_fc1, col_fc2 = st.columns(2)
         with col_fc1: sel_flag = st.selectbox("Flag", FLAG_OPTIONS)
         with col_fc2: sel_class = st.selectbox("Class", CLASS_OPTIONS)
             
         curr_fc = st.session_state['doc_info'].get("flag_class", "")
-        if sel_flag != "선택 안함" or sel_class != "선택 안함":
-            flag_part = sel_flag if sel_flag != "선택 안함" else ""
-            class_part = sel_class if sel_class != "선택 안함" else ""
+        if sel_flag != "Choose an option" or sel_class != "Choose an option":
+            flag_part = sel_flag if sel_flag != "Choose an option" else ""
+            class_part = sel_class if sel_class != "Choose an option" else ""
             auto_fc = f"{flag_part} / {class_part}".strip(" /")
         else: auto_fc = curr_fc
 
