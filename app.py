@@ -117,24 +117,29 @@ def extract_items_list(res):
             return [res]
     return []
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_exchange_rates():
     fallback_rates = {
         "USD": 1.0, "KRW": 1350.0, "EUR": 0.92, "JPY": 150.0,
         "CNY": 7.2, "SGD": 1.35, "GBP": 0.79, "HKD": 7.8, "AED": 3.67
     }
-    try:
-        url = "https://open.er-api.com/v6/latest/USD"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            if data.get("result") == "success" and "rates" in data:
-                rates = data["rates"]
-                for c in CURRENCY_OPTIONS:
-                    if c not in rates: rates[c] = fallback_rates.get(c, 1.0)
-                return rates
-    except Exception: pass
-    return fallback_rates
+    fetch_time = get_kst_now().strftime("%H:%M:%S")
+    urls = [
+        f"https://open.er-api.com/v6/latest/USD?_={int(time.time())}",
+        "https://api.exchangerate-api.com/v4/latest/USD"
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=4) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                rates = data.get("rates", {})
+                if rates:
+                    for c in CURRENCY_OPTIONS:
+                        if c not in rates: rates[c] = fallback_rates.get(c, 1.0)
+                    return rates, fetch_time
+        except Exception: continue
+    return fallback_rates, fetch_time
 
 def safe_float(val, default=0.0):
     if val is None or pd.isna(val): return default
@@ -447,31 +452,32 @@ custom_css = """
     .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
-    .rate-card { background: rgba(15, 23, 42, 0.6); border: 1px solid #1E293B; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.8rem; color: #94A3B8; }
 
-    /* 🎯 사이드바 새로고침 버튼 테두리 및 회색 박스 완전 제거 파동 패치 */
-    div[data-testid="stSidebar"] [data-testid="stColumn"] button,
-    div[data-testid="stSidebar"] button[key="btn_refresh_exchange_rates"],
-    div[data-testid="stSidebar"] button:has(span:contains("🔄")) {
+    /* 🎯 100% 통합된 실시간 매매기준율 카드 디자인 (남색 배경 + 테두리 없는 새로고침) */
+    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) {
+        background: rgba(15, 23, 42, 0.7) !important;
+        border: 1px solid #0284C7 !important;
+        border-radius: 10px !important;
+        padding: 10px 12px !important;
+        margin-bottom: 16px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+    }
+    
+    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button {
         border: none !important;
-        border-width: 0px !important;
         background: transparent !important;
         background-color: transparent !important;
         box-shadow: none !important;
         outline: none !important;
         padding: 0px !important;
         margin: 0px !important;
+        height: 28px !important;
+        width: 28px !important;
+        min-height: 28px !important;
     }
-    div[data-testid="stSidebar"] [data-testid="stColumn"] button:hover {
-        background: rgba(2, 132, 199, 0.2) !important;
-        border-radius: 8px !important;
-        border: none !important;
-    }
-    div[data-testid="stSidebar"] [data-testid="stColumn"] button:focus,
-    div[data-testid="stSidebar"] [data-testid="stColumn"] button:active {
-        border: none !important;
-        box-shadow: none !important;
-        outline: none !important;
+    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button:hover {
+        background: rgba(2, 132, 199, 0.25) !important;
+        border-radius: 6px !important;
     }
 </style>
 """
@@ -818,7 +824,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 요청 실패: {last_err}")
 
-# 📌 1. 서류 분석/생성 Master AI 파싱 (원본 로직 100% 복구)
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
@@ -877,7 +882,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 2. 서류 관리 대장 AI 수집기 (원본 로직 100% 복구 + JSON 리스트 보완)
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -950,7 +954,6 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 3. 자재 단가 마스터 AI 수집기 (원본 로직 100% 복구 + JSON 리스트 보완)
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -1060,31 +1063,33 @@ if st.session_state.get('user_email'):
 
 st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 12px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
 
-live_rates = get_exchange_rates()
+live_rates, rate_time = get_exchange_rates()
 usd_krw = live_rates.get("KRW", 1350.0)
 eur_usd = live_rates.get("EUR", 0.92)
 eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
-# 💱 실시간 매매기준율 카드 & 🔄 새로고침 버튼 레이아웃
-rate_col1, rate_col2 = st.sidebar.columns([4, 1])
-with rate_col1:
+# 🎯 [새로고침 버튼이 완벽히 포함된 실시간 매매기준율 전용 단일 카드 컨테이너]
+with st.sidebar.container(border=True):
+    st.markdown('<div class="rate-card-anchor"></div>', unsafe_allow_html=True)
+    r_head_col1, r_head_col2 = st.columns([8, 2])
+    with r_head_col1:
+        st.markdown('<strong style="color:#0284C7; font-size:0.85rem;">💱 실시간 매매기준율</strong>', unsafe_allow_html=True)
+    with r_head_col2:
+        if st.button("🔄", key="btn_refresh_exchange_rates", help="환율 실시간 새로고침"):
+            st.cache_data.clear()
+            st.toast("💱 실시간 매매기준율 정보가 새로고침 되었습니다.", icon="🔄")
+            st.rerun()
+    
     st.markdown(f"""
-    <div class="rate-card" style="margin-bottom:0px;">
-        <strong style="color:#0284C7;">💱 실시간 매매기준율 (Live Rates)</strong><br>
+    <div style="font-size:0.8rem; color:#94A3B8; margin-top:2px; line-height:1.5;">
         • <b>USD/KRW:</b> {usd_krw:,.2f} 원<br>
         • <b>EUR/KRW:</b> {eur_krw:,.2f} 원<br>
-        • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원
+        • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원<br>
+        <span style="font-size:0.72rem; color:#64748B;">⏱️ 최근 갱신: {rate_time} (KST)</span>
     </div>
     """, unsafe_allow_html=True)
-with rate_col2:
-    if st.button("🔄", key="btn_refresh_exchange_rates", help="환율 실시간 새로고침"):
-        st.cache_data.clear()
-        st.toast("💱 실시간 매매기준율이 최신 정보로 새로고침 되었습니다.", icon="🔄")
-        st.rerun()
-
-st.sidebar.write("")
 
 menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
