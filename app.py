@@ -1070,22 +1070,22 @@ if st.session_state.get('user_email'):
 
 # 🎯 Powered by Gemini 3.6 배너 & 실시간 환율 카드 통합 코드
 
-# 🎯 [Powered by Gemini 3.6 배너 - 형광 주황 네온 스타일]
+# 🎯 [Powered by Gemini 3.6 배너 - 형광 하늘색 네온 스타일]
 st.sidebar.markdown("""
 <div style="
-    background: rgba(255, 85, 0, 0.12);
-    border: 1.5px solid #FF5500;
+    background: rgba(0, 240, 255, 0.1);
+    border: 1.5px solid #00F0FF;
     border-radius: 8px;
     padding: 10px 12px;
     text-align: center;
     margin-bottom: 12px;
-    box-shadow: 0 0 12px rgba(255, 85, 0, 0.3);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
 ">
     <span style="
-        color: #FF5500;
+        color: #00F0FF;
         font-size: 0.85rem;
         font-weight: 800;
-        text-shadow: 0 0 8px rgba(255, 85, 0, 0.5);
+        text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
         letter-spacing: 0.3px;
     ">Powered by Gemini 3.6</span>
 </div>
