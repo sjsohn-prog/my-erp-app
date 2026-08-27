@@ -76,7 +76,6 @@ ITEM_MASTER_FILE = "item_master.csv"
 # ==========================================
 # 0-1. 최상단 공통 헬퍼 함수 & 시간대 & 실시간 환율 & 구글 시트 연동
 # ==========================================
-# 🇰🇷 한국 표준시(KST = UTC+9) 구하기
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
 
@@ -102,7 +101,6 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
-# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 함수
 def extract_items_list(res):
     if isinstance(res, list):
         return res
@@ -453,39 +451,34 @@ custom_css = """
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
 
-    /* 🎯 실시간 매매기준율 카드 전용 CSS */
-    .rate-card-box {
-        background: rgba(15, 23, 42, 0.65) !important;
-        border: 1px solid rgba(2, 132, 199, 0.35) !important;
+    /* 🎯 실시간 매매기준율 위젯 전용 CSS 및 전역 stButton 스타일 격리 */
+    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) {
+        background: rgba(15, 23, 42, 0.75) !important;
+        border: 1px solid rgba(2, 132, 199, 0.4) !important;
         border-radius: 10px !important;
         padding: 12px !important;
-        margin-top: 4px !important;
+        margin-bottom: 16px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
     }
-    .rate-item {
-        display: flex !important;
-        justify-content: space-between !important;
-        align-items: center !important;
-        padding: 4px 0 !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .rate-item:last-child {
-        border-bottom: none !important;
-    }
-    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button {
-        border: none !important;
+    
+    div.rate-refresh-btn-container .stButton > button {
         background: transparent !important;
-        box-shadow: none !important;
-        padding: 0px !important;
-        margin: 0px !important;
-        height: 26px !important;
-        width: 26px !important;
-        min-height: 26px !important;
-        font-size: 1rem !important;
-    }
-    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button:hover {
-        background: rgba(2, 132, 199, 0.2) !important;
+        border: 1px solid rgba(56, 189, 248, 0.35) !important;
+        color: #38BDF8 !important;
+        height: 28px !important;
+        min-height: 28px !important;
+        width: 28px !important;
+        padding: 0 !important;
+        margin: 0 !important;
         border-radius: 6px !important;
+        font-size: 0.85rem !important;
+        box-shadow: none !important;
+        line-height: 1 !important;
+    }
+    div.rate-refresh-btn-container .stButton > button:hover {
+        background: rgba(56, 189, 248, 0.2) !important;
+        border-color: #38BDF8 !important;
+        color: #FFFFFF !important;
     }
 </style>
 """
@@ -1078,24 +1071,37 @@ eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
-# 🎯 [새로고침 버튼이 완벽히 포함된 실시간 매매기준율 전용 단일 카드 컨테이너]
+# 🎯 [실시간 매매기준율 전용 고급 카드 컨테이너]
 with st.sidebar.container(border=True):
     st.markdown('<div class="rate-card-anchor"></div>', unsafe_allow_html=True)
     r_head_col1, r_head_col2 = st.columns([8, 2])
     with r_head_col1:
-        st.markdown('<strong style="color:#0284C7; font-size:0.85rem;">💱 실시간 매매기준율</strong>', unsafe_allow_html=True)
+        st.markdown('<div style="display:flex; align-items:center; gap:6px; margin-top:2px;"><span style="font-size:0.9rem;">💱</span><span style="color:#38BDF8; font-size:0.85rem; font-weight:800; letter-spacing:-0.3px;">실시간 매매기준율</span></div>', unsafe_allow_html=True)
     with r_head_col2:
+        st.markdown('<div class="rate-refresh-btn-container">', unsafe_allow_html=True)
         if st.button("🔄", key="btn_refresh_exchange_rates", help="환율 실시간 새로고침"):
             st.cache_data.clear()
             st.toast("💱 실시간 매매기준율 정보가 새로고침 되었습니다.", icon="🔄")
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown(f"""
-    <div style="font-size:0.8rem; color:#94A3B8; margin-top:2px; line-height:1.5;">
-        • <b>USD/KRW:</b> {usd_krw:,.2f} 원<br>
-        • <b>EUR/KRW:</b> {eur_krw:,.2f} 원<br>
-        • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원<br>
-        <span style="font-size:0.72rem; color:#64748B;">⏱️ 최근 갱신: {rate_time} (KST)</span>
+    <div style="margin-top: 8px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; padding: 8px 10px; border: 1px solid rgba(56, 189, 248, 0.15);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.08);">
+            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇺🇸 USD / KRW</span>
+            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{usd_krw:,.2f} 원</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.08);">
+            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇪🇺 EUR / KRW</span>
+            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{eur_krw:,.2f} 원</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0;">
+            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇸🇬 SGD / KRW</span>
+            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{sgd_krw:,.2f} 원</span>
+        </div>
+        <div style="margin-top: 6px; padding-top: 4px; text-align: right; font-size: 0.68rem; color: #64748B;">
+            ⏱️ 최근 갱신: {rate_time} (KST)
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
