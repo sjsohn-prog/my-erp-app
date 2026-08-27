@@ -10,7 +10,7 @@ import io
 import threading
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import google.generativeai as genai
 from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
@@ -60,13 +60,11 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 대장 컬럼 (헤더 정보 중심)
 doc_db_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
 
-# 자재 단가 마스터 컬럼
 item_master_cols = [
     "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
@@ -76,8 +74,12 @@ CUSTOMER_DB_FILE = "customer_db.csv"
 ITEM_MASTER_FILE = "item_master.csv"
 
 # ==========================================
-# 0-1. 최상단 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
+# 0-1. 최상단 공통 헬퍼 함수 & 시간대 & 실시간 환율 & 구글 시트 연동
 # ==========================================
+# 🇰🇷 한국 표준시(KST = UTC+9) 구하기
+def get_kst_now():
+    return datetime.now(timezone(timedelta(hours=9)))
+
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
     s = str(val).strip()
@@ -100,7 +102,7 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
-# 🎯 [핵심 버그 수정] Gemini AI가 어떤 형태의 JSON으로 응답해도 유연하게 항목 리스트만 정밀 추출
+# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 함수
 def extract_items_list(res):
     if isinstance(res, list):
         return res
@@ -115,7 +117,6 @@ def extract_items_list(res):
             return [res]
     return []
 
-# 🌐 실시간 매매기준율 환율 수집 함수 (1시간 캐싱)
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
     fallback_rates = {
@@ -723,7 +724,7 @@ def save_history(ship, to, attn):
 
 def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
     df = ensure_cols(safe_read_csv(target_db_file, doc_db_cols), doc_db_cols)
-    issue_date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    issue_date_str = get_kst_now().strftime("%Y-%m-%d %H:%M")
     logged_user = user_email or st.session_state.get('user_email', 'Unknown')
     default_status = "🔵 PO Received" if doc_type == "Purchase Order" else ("🟣 Invoiced" if doc_type == "Invoice" else "🟡 Quoted")
 
@@ -792,7 +793,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 요청 실패: {last_err}")
 
-# 📌 1. 서류 분석/생성 Master AI 파싱
+# 📌 1. 서류 분석/생성 Master AI 파싱 (원본 로직 100% 복구)
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
@@ -800,7 +801,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
-        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{get_kst_now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f: f.write(file_bytes)
 
         prompt = """
@@ -851,7 +852,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 2. 서류 관리 대장 AI 수집기 (버그 정밀 해결)
+# 📌 2. 서류 관리 대장 AI 수집기 (원본 로직 100% 복구 + JSON 리스트 보완)
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -859,7 +860,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
-        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{get_kst_now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f: f.write(file_bytes)
 
         all_results = []
@@ -924,7 +925,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 3. 자재 단가 마스터 AI 수집기 (버그 정밀 해결)
+# 📌 3. 자재 단가 마스터 AI 수집기 (원본 로직 100% 복구 + JSON 리스트 보완)
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -932,7 +933,7 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
-        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{get_kst_now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
         with open(save_path, "wb") as f: f.write(file_bytes)
 
         all_results = []
@@ -1041,14 +1042,24 @@ eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
-st.sidebar.markdown(f"""
-<div class="rate-card">
-    <strong style="color:#0284C7;">💱 실시간 매매기준율 (Live Rates)</strong><br>
-    • <b>USD/KRW:</b> {usd_krw:,.2f} 원<br>
-    • <b>EUR/KRW:</b> {eur_krw:,.2f} 원<br>
-    • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원
-</div>
-""", unsafe_allow_html=True)
+# 💱 실시간 매매기준율 카드 & 🔄 새로고침 버튼 레이아웃
+rate_col1, rate_col2 = st.sidebar.columns([4, 1])
+with rate_col1:
+    st.markdown(f"""
+    <div class="rate-card" style="margin-bottom:0px;">
+        <strong style="color:#0284C7;">💱 실시간 매매기준율 (Live Rates)</strong><br>
+        • <b>USD/KRW:</b> {usd_krw:,.2f} 원<br>
+        • <b>EUR/KRW:</b> {eur_krw:,.2f} 원<br>
+        • <b>SGD/KRW:</b> {sgd_krw:,.2f} 원
+    </div>
+    """, unsafe_allow_html=True)
+with rate_col2:
+    if st.button("🔄", key="btn_refresh_exchange_rates", help="환율 실시간 새로고침"):
+        st.cache_data.clear()
+        st.toast("💱 실시간 매매기준율이 최신 정보로 새로고침 되었습니다.", icon="🔄")
+        st.rerun()
+
+st.sidebar.write("")
 
 menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
@@ -1114,7 +1125,7 @@ if menu == "서류 분석 / 생성 Master":
         project_val = clean_str(ai_data.get("project_title", ""))
         validity_val = clean_str(ai_data.get("validity", "30 Days"))
         flag_class_val = clean_str(ai_data.get("flag_class", ""))
-        date_val = clean_str(ai_data.get("date_str", datetime.now().strftime("%Y-%m-%d")))
+        date_val = clean_str(ai_data.get("date_str", get_kst_now().strftime("%Y-%m-%d")))
         ship_val = clean_str(ai_data.get("ship_name", ""))
         payment_due_val = clean_str(ai_data.get("payment_due", ""))
         currency_val = clean_str(ai_data.get("currency", "KRW"))
@@ -1128,7 +1139,7 @@ if menu == "서류 분석 / 생성 Master":
             "OurRef": "-",
             "ShipName": ship_val or "-",
             "TargetName": issuer_comp or to_field_val or recip_comp or "-",
-            "DocDate": date_val or datetime.now().strftime("%Y-%m-%d"),
+            "DocDate": date_val or get_kst_now().strftime("%Y-%m-%d"),
             "Currency": currency_val or "KRW",
             "TotalAmount": parsed_tot_val,
             "ItemCount": len(parsed_items) if parsed_items else 1,
@@ -1232,7 +1243,7 @@ if menu == "서류 분석 / 생성 Master":
             with col_hdr_r:
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
-                date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [datetime.now().strftime("%Y-%m-%d")], "date")
+                date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [get_kst_now().strftime("%Y-%m-%d")], "date")
                 our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance"], "payment_due")
@@ -1366,7 +1377,7 @@ if menu == "서류 분석 / 생성 Master":
             st.markdown(f'<div class="section-title">{t("preview_title")}</div>', unsafe_allow_html=True)
             preview_ctx = {
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
-                "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or datetime.now().strftime("%Y-%m-%d"),
+                "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or get_kst_now().strftime("%Y-%m-%d"),
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
                 "items": prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency),
                 "bottom_remarks": bottom_remarks, "total_amount_str": final_total_str, "vat_note": vat_note_str
