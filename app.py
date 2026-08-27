@@ -14,13 +14,29 @@ from datetime import datetime
 import google.generativeai as genai
 from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
+import pymupdf  # fitz API 모듈 경고 방지 및 최신 PyMuPDF 적용
+
+# 구글 시트 연동 라이브러리 지원
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    HAS_GSPREAD = True
+except ImportError:
+    HAS_GSPREAD = False
 
 # ==========================================
 # 0. 보안 비밀번호 및 환경 설정
 # ==========================================
-ADMIN_PASSWORD = "admin0915"
-SAVE_PASSWORD = "0915"
-DEFAULT_GEMINI_KEY = ""
+def get_secret(key, default=""):
+    try:
+        if key in st.secrets: return st.secrets[key]
+    except Exception: pass
+    return default
+
+# st.secrets 우선 적용 및 기본값 설정
+ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "admin0915")
+SAVE_PASSWORD = get_secret("SAVE_PASSWORD", "0915")
+DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
 FLAG_OPTIONS = [
     "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", 
@@ -40,12 +56,6 @@ STATUS_OPTIONS = [
     "🟡 Quoted", "🔵 PO Received", "🟣 Invoiced", "🟢 Paid", "🔴 Cancelled", "⚪ Draft"
 ]
 
-def get_secret(key, default=""):
-    try:
-        if key in st.secrets: return st.secrets[key]
-    except Exception: pass
-    return default
-
 GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
@@ -57,7 +67,7 @@ doc_db_cols = [
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
 
-# 자재 단가 마스터 컬럼 (Status 제거됨)
+# 자재 단가 마스터 컬럼
 item_master_cols = [
     "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
@@ -67,7 +77,7 @@ CUSTOMER_DB_FILE = "customer_db.csv"
 ITEM_MASTER_FILE = "item_master.csv"
 
 # ==========================================
-# 0-1. 최상단 공통 헬퍼 함수 정의
+# 0-1. 최상단 공통 헬퍼 함수 & 구글 시트 연동
 # ==========================================
 def clean_str(val):
     if pd.isna(val) or val is None: return ""
@@ -98,10 +108,6 @@ def get_exchange_rates():
         "CNY": 7.2, "SGD": 1.35, "GBP": 0.79, "HKD": 7.8, "AED": 3.67
     }
 
-def get_rate_per_usd(currency, rates):
-    c = clean_str(currency).upper()
-    return rates.get(c, 1.0)
-
 def safe_float(val, default=0.0):
     if val is None or pd.isna(val):
         return default
@@ -122,18 +128,73 @@ def get_currency_symbol(code):
     }
     return symbols.get(c, f"{c} " if c else "")
 
+# 구글 시트 인증 클라이언트
+def get_gsheet_client():
+    if not HAS_GSPREAD:
+        return None
+    try:
+        if "gcp_service_account" in st.secrets:
+            scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+            return gspread.authorize(creds)
+    except Exception:
+        pass
+    return None
+
 def safe_read_csv(filepath, default_cols=None):
     if default_cols is None:
         default_cols = []
+    
+    # 1. 구글 시트 연동 시도
+    sheet_title = os.path.splitext(os.path.basename(filepath))[0]
+    gc = get_gsheet_client()
+    spreadsheet_key = get_secret("SPREADSHEET_KEY")
+    if gc and spreadsheet_key:
+        try:
+            sh = gc.open_by_key(spreadsheet_key)
+            ws = sh.worksheet(sheet_title)
+            data = ws.get_all_records()
+            if data:
+                df = pd.DataFrame(data)
+                return ensure_cols(df, default_cols)
+        except Exception:
+            pass
+
+    # 2. 백업 로컬 CSV 읽기
     if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
         return pd.DataFrame(columns=default_cols)
     try:
         df = pd.read_csv(filepath)
         if df.empty:
             return pd.DataFrame(columns=default_cols)
-        return df
-    except (pd.errors.EmptyDataError, Exception):
+        return ensure_cols(df, default_cols)
+    except Exception:
         return pd.DataFrame(columns=default_cols)
+
+def safe_save_csv(df, filepath, default_cols=None):
+    if default_cols is None:
+        default_cols = []
+    cleaned_df = ensure_cols(clean_df(df), default_cols)
+    
+    # 1. 로컬 CSV 보존
+    cleaned_df.to_csv(filepath, index=False)
+    
+    # 2. 구글 시트 자동 동기화
+    sheet_title = os.path.splitext(os.path.basename(filepath))[0]
+    gc = get_gsheet_client()
+    spreadsheet_key = get_secret("SPREADSHEET_KEY")
+    if gc and spreadsheet_key:
+        try:
+            sh = gc.open_by_key(spreadsheet_key)
+            try:
+                ws = sh.worksheet(sheet_title)
+            except Exception:
+                ws = sh.add_worksheet(title=sheet_title, rows="1000", cols="20")
+            ws.clear()
+            ws.update([cleaned_df.columns.values.tolist()] + cleaned_df.fillna("").values.tolist())
+        except Exception as e:
+            st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 보존됨): {e}")
 
 def render_unified_input(label, current_val, base_options, key_prefix):
     display_label = f"▾ {label}" if not label.startswith("▾") else label
@@ -287,7 +348,7 @@ def t(key, **kwargs):
     return text
 
 # ==========================================
-# 0-3. 구글 OAuth 로그인 필수 함수
+# 0-3. 구글 OAuth 로그인 디버깅 보완 함수
 # ==========================================
 def get_google_auth_url():
     params = {
@@ -302,7 +363,7 @@ def get_google_auth_url():
 
 def get_google_user_info(code):
     token_url = "https://oauth2.googleapis.com/token"
-    data = urllib.parse.urlencode({
+    payload = urllib.parse.urlencode({
         "code": code,
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
@@ -310,13 +371,18 @@ def get_google_user_info(code):
         "grant_type": "authorization_code"
     }).encode('utf-8')
     
-    req = urllib.request.Request(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    
+    req = urllib.request.Request(token_url, data=payload, headers=headers)
     with urllib.request.urlopen(req) as response:
         token_data = json.loads(response.read().decode('utf-8'))
         
     access_token = token_data.get("access_token")
     userinfo_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={access_token}"
-    req_user = urllib.request.Request(userinfo_url)
+    req_user = urllib.request.Request(userinfo_url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req_user) as response_user:
         return json.loads(response_user.read().decode('utf-8'))
 
@@ -445,15 +511,19 @@ if 'authenticated' not in st.session_state:
 if 'processed_code' not in st.session_state:
     st.session_state['processed_code'] = None
 
-query_params = st.query_params
-if "code" in query_params and not st.session_state['authenticated']:
-    auth_code = query_params["code"]
-    if st.session_state['processed_code'] == auth_code:
+# OAuth query_params 예외 처리
+try:
+    code_param = st.query_params.get("code", None)
+except Exception:
+    code_param = None
+
+if code_param and not st.session_state['authenticated']:
+    if st.session_state['processed_code'] == code_param:
         st.query_params.clear()
     else:
-        st.session_state['processed_code'] = auth_code
+        st.session_state['processed_code'] = code_param
         try:
-            user_info = get_google_user_info(auth_code)
+            user_info = get_google_user_info(code_param)
             email = user_info.get("email", "")
             if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
                 st.error(f"❌ Access Denied: Only @{ALLOWED_DOMAIN} accounts are allowed. (Attempted: {email})")
@@ -783,13 +853,13 @@ def load_saved_key():
 gemini_key = load_saved_key()
 
 our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
-clean_df(our_db_init).to_csv(OUR_DB_FILE, index=False)
+safe_save_csv(our_db_init, OUR_DB_FILE, doc_db_cols)
 
 customer_db_init = ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols)
-clean_df(customer_db_init).to_csv(CUSTOMER_DB_FILE, index=False)
+safe_save_csv(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
 
 item_master_init = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
-clean_df(item_master_init).to_csv(ITEM_MASTER_FILE, index=False)
+safe_save_csv(item_master_init, ITEM_MASTER_FILE, item_master_cols)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -836,8 +906,7 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
     }])
 
     updated_df = pd.concat([df, new_entry], ignore_index=True)
-    updated_df = ensure_cols(updated_df, doc_db_cols)
-    clean_df(updated_df).to_csv(target_db_file, index=False)
+    safe_save_csv(updated_df, target_db_file, doc_db_cols)
 
 def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW"):
     if items_df is None or items_df.empty:
@@ -868,7 +937,7 @@ def save_items_to_master(items_df, supplier_name="자사 서류 생성", currenc
     if new_rows:
         new_df = pd.DataFrame(new_rows)
         combined = pd.concat([master_df, new_df], ignore_index=True)
-        clean_df(ensure_cols(combined, item_master_cols)).to_csv(ITEM_MASTER_FILE, index=False)
+        safe_save_csv(combined, ITEM_MASTER_FILE, item_master_cols)
         return len(new_rows)
     return 0
 
@@ -1146,8 +1215,7 @@ def generate_pdf(context):
 def render_pdf_images(pdf_bytes):
     images = []
     try:
-        import fitz
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         for page in doc:
             pix = page.get_pixmap(dpi=150)
             images.append(pix.tobytes("png"))
@@ -1599,7 +1667,7 @@ elif menu == "서류 관리 대장":
                     updated_master = db_df.copy()
                     updated_master.loc[filtered_df.index] = edited_df
                 
-                clean_df(updated_master).to_csv(db_filepath, index=False)
+                safe_save_csv(updated_master, db_filepath, doc_db_cols)
                 st.success("🎉 서류 대장이 성공적으로 저장되었습니다.")
                 st.rerun()
 
@@ -1659,7 +1727,7 @@ elif menu == "서류 관리 대장":
                     target_file = OUR_DB_FILE if "자사" in target_ledger_choice else CUSTOMER_DB_FILE
                     existing_db = safe_read_csv(target_file, doc_db_cols)
                     updated_db = safe_merge_db(existing_db, st.session_state['temp_doc_ledger_upload'], doc_db_cols)
-                    updated_db.to_csv(target_file, index=False)
+                    safe_save_csv(updated_db, target_file, doc_db_cols)
                     del st.session_state['temp_doc_ledger_upload']
                     st.success("Successfully saved to Document Ledger.")
                     st.rerun()
@@ -1731,7 +1799,7 @@ elif menu == "자재 단가 마스터 DB":
                     updated_master = item_df.copy()
                     updated_master.loc[filtered_df.index] = edited_df
                 
-                clean_df(updated_master).to_csv(ITEM_MASTER_FILE, index=False)
+                safe_save_csv(updated_master, ITEM_MASTER_FILE, item_master_cols)
                 st.success("🎉 자재 마스터 DB가 성공적으로 저장되었습니다.")
                 st.rerun()
 
@@ -1785,7 +1853,7 @@ elif menu == "자재 단가 마스터 DB":
                     st.error(t("pwd_err"))
                 else:
                     updated_db = safe_merge_db(item_df, st.session_state['temp_item_master_upload'], item_master_cols)
-                    updated_db.to_csv(ITEM_MASTER_FILE, index=False)
+                    safe_save_csv(updated_db, ITEM_MASTER_FILE, item_master_cols)
                     del st.session_state['temp_item_master_upload']
                     st.success("Successfully saved to Item Master DB.")
                     st.rerun()
@@ -1834,12 +1902,12 @@ elif menu == "관리자 메뉴":
             col1, col2 = st.columns([1, 1])
             with col1:
                 if st.button("💾 자사 서류 대장 변경사항 반영", key="btn_admin_save_our"):
-                    clean_df(edited_our_admin).to_csv(OUR_DB_FILE, index=False)
+                    safe_save_csv(edited_our_admin, OUR_DB_FILE, doc_db_cols)
                     st.success("✅ 자사 서류 대장이 저장되었습니다.")
                     st.rerun()
             with col2:
                 if st.button("🚨 자사 서류 대장 전체 초기화", key="btn_admin_reset_our"):
-                    pd.DataFrame(columns=doc_db_cols).to_csv(OUR_DB_FILE, index=False)
+                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), OUR_DB_FILE, doc_db_cols)
                     st.success("🚨 자사 서류 대장이 초기화되었습니다.")
                     st.rerun()
 
@@ -1853,12 +1921,12 @@ elif menu == "관리자 메뉴":
             col1, col2 = st.columns([1, 1])
             with col1:
                 if st.button("💾 고객사 서류 대장 변경사항 반영", key="btn_admin_save_cust"):
-                    clean_df(edited_cust_admin).to_csv(CUSTOMER_DB_FILE, index=False)
+                    safe_save_csv(edited_cust_admin, CUSTOMER_DB_FILE, doc_db_cols)
                     st.success("✅ 고객사 서류 대장이 저장되었습니다.")
                     st.rerun()
             with col2:
                 if st.button("🚨 고객사 서류 대장 전체 초기화", key="btn_admin_reset_cust"):
-                    pd.DataFrame(columns=doc_db_cols).to_csv(CUSTOMER_DB_FILE, index=False)
+                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), CUSTOMER_DB_FILE, doc_db_cols)
                     st.success("🚨 고객사 서류 대장이 초기화되었습니다.")
                     st.rerun()
 
@@ -1872,12 +1940,12 @@ elif menu == "관리자 메뉴":
             col1, col2 = st.columns([1, 1])
             with col1:
                 if st.button("💾 자재 마스터 DB 변경사항 반영", key="btn_admin_save_item"):
-                    clean_df(edited_item_admin).to_csv(ITEM_MASTER_FILE, index=False)
+                    safe_save_csv(edited_item_admin, ITEM_MASTER_FILE, item_master_cols)
                     st.success("✅ 자재 마스터 DB가 저장되었습니다.")
                     st.rerun()
             with col2:
                 if st.button("🚨 자재 마스터 DB 전체 초기화", key="btn_admin_reset_item"):
-                    pd.DataFrame(columns=item_master_cols).to_csv(ITEM_MASTER_FILE, index=False)
+                    safe_save_csv(pd.DataFrame(columns=item_master_cols), ITEM_MASTER_FILE, item_master_cols)
                     st.success("🚨 자재 마스터 DB가 초기화되었습니다.")
                     st.rerun()
 
