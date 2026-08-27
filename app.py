@@ -453,30 +453,38 @@ custom_css = """
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
 
-    /* 🎯 100% 통합된 실시간 매매기준율 카드 디자인 (남색 배경 + 테두리 없는 새로고침) */
-    div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) {
-        background: rgba(15, 23, 42, 0.7) !important;
-        border: 1px solid #0284C7 !important;
+    /* 🎯 실시간 매매기준율 카드 전용 CSS */
+    .rate-card-box {
+        background: rgba(15, 23, 42, 0.65) !important;
+        border: 1px solid rgba(2, 132, 199, 0.35) !important;
         border-radius: 10px !important;
-        padding: 10px 12px !important;
-        margin-bottom: 16px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+        padding: 12px !important;
+        margin-top: 4px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
     }
-    
+    .rate-item {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 4px 0 !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .rate-item:last-child {
+        border-bottom: none !important;
+    }
     div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button {
         border: none !important;
         background: transparent !important;
-        background-color: transparent !important;
         box-shadow: none !important;
-        outline: none !important;
         padding: 0px !important;
         margin: 0px !important;
-        height: 28px !important;
-        width: 28px !important;
-        min-height: 28px !important;
+        height: 26px !important;
+        width: 26px !important;
+        min-height: 26px !important;
+        font-size: 1rem !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) button:hover {
-        background: rgba(2, 132, 199, 0.25) !important;
+        background: rgba(2, 132, 199, 0.2) !important;
         border-radius: 6px !important;
     }
 </style>
