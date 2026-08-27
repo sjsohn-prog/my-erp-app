@@ -560,7 +560,7 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     @page { 
-        size: A4; margin-top: 25mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
+        size: A4; margin-top: 32mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
         @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
     }
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
