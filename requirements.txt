@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.30.0
 pandas
 jinja2
 google-generativeai
@@ -7,3 +7,5 @@ weasyprint
 PyMuPDF
 openpyxl
 xlrd
+gspread>=5.10.0
+google-auth>=2.20.0
