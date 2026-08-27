@@ -448,6 +448,23 @@ custom_css = """
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
     .rate-card { background: rgba(15, 23, 42, 0.6); border: 1px solid #1E293B; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 0.8rem; color: #94A3B8; }
+
+/* 사이드바 새로고침 버튼 테두리 및 외곽선 제거 */
+    div[data-testid="stSidebar"] div[data-testid="stColumn"] div[data-testid="stButton"] > button {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+        padding: 0 !important;
+        height: 100% !important;
+    }
+    
+    /* 마우스 올렸을 때 살짝 불빛 효과 (선택 사항) */
+    div[data-testid="stSidebar"] div[data-testid="stColumn"] div[data-testid="stButton"] > button:hover {
+        background: rgba(2, 132, 199, 0.15) !important;
+        border-radius: 8px !important;
+    }
+
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
