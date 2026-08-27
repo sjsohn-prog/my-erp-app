@@ -60,13 +60,11 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# 서류 대장 컬럼 (헤더 정보 중심)
 doc_db_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
 
-# 자재 단가 마스터 컬럼
 item_master_cols = [
     "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
@@ -100,7 +98,17 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
-# 🌐 실시간 매매기준율 환율 수집 함수 (1시간 캐싱)
+# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 보완 함수
+def extract_list_from_json_res(res):
+    if isinstance(res, list):
+        return res
+    if isinstance(res, dict):
+        for v in res.values():
+            if isinstance(v, list):
+                return v
+        return [res]
+    return []
+
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
     fallback_rates = {
@@ -137,7 +145,6 @@ def get_currency_symbol(code):
     }
     return symbols.get(c, f"{c} " if c else "")
 
-# 구글 시트 커넥터
 def get_gsheet_client():
     if not HAS_GSPREAD: return None
     try:
@@ -835,6 +842,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
+# 🛠️ [PDF / 이미지 / 엑셀 유연한 JSON 처리로 전면 수정된 AI 서류 대장 수집기]
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -846,9 +854,8 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         with open(save_path, "wb") as f: f.write(file_bytes)
 
         all_results = []
-        
         db_prompt = """
-        Extract document headers/summaries from the provided file into a JSON Array of objects matching this exact structure:
+        Extract document headers/summaries from the provided file into a JSON Array matching this exact structure:
         [
             {
                 "IssueDate": "YYYY-MM-DD",
@@ -873,7 +880,8 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
-            if isinstance(res, list): all_results.extend(res)
+            extracted = extract_list_from_json_res(res)
+            all_results.extend(extracted)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
             sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
@@ -882,15 +890,17 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
                 try:
                     df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
                     if not df_clean.empty:
-                        res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        if isinstance(res, list): all_results.extend(res)
+                        res = get_ai_response(api_key, [db_prompt, f"Sheet '{s_name}' CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        extracted = extract_list_from_json_res(res)
+                        all_results.extend(extracted)
                 except Exception: pass
         elif file_ext == 'csv':
             try:
                 df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    if isinstance(res, list): all_results.extend(res)
+                    extracted = extract_list_from_json_res(res)
+                    all_results.extend(extracted)
             except Exception: pass
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), doc_db_cols)
@@ -900,7 +910,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 🚨 [완벽 원복된 AI 자재 단가 수집기 분석 엔진]
+# 🛠️ [PDF / 이미지 / 엑셀 유연한 JSON 처리로 전면 수정된 AI 자재 단가 수집기]
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -912,7 +922,6 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         with open(save_path, "wb") as f: f.write(file_bytes)
 
         all_results = []
-        
         item_prompt = """
         Extract ALL individual material/part price items from the provided file into a JSON Array.
 
@@ -927,7 +936,7 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
                 "PartNo": "",
                 "ItemName": "",
                 "Description": "",
-                "Supplier": "공급사명 (예: (주)더주원)",
+                "Supplier": "공급사명",
                 "BuyPrice": 0.0,
                 "ListPrice": 0.0,
                 "Currency": "KRW",
@@ -939,7 +948,8 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [item_prompt, content], mode=ai_mode)
-            if isinstance(res, list): all_results.extend(res)
+            extracted = extract_list_from_json_res(res)
+            all_results.extend(extracted)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
             sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
@@ -948,15 +958,17 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
                 try:
                     df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
                     if not df_clean.empty:
-                        res = get_ai_response(api_key, [item_prompt, f"Excel Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        if isinstance(res, list): all_results.extend(res)
+                        res = get_ai_response(api_key, [item_prompt, f"Sheet '{s_name}' Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        extracted = extract_list_from_json_res(res)
+                        all_results.extend(extracted)
                 except Exception: pass
         elif file_ext == 'csv':
             try:
                 df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [item_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    if isinstance(res, list): all_results.extend(res)
+                    extracted = extract_list_from_json_res(res)
+                    all_results.extend(extracted)
             except Exception: pass
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), item_master_cols)
@@ -1037,6 +1049,9 @@ elif st.session_state['current_menu'] != menu:
 task = st.session_state['bg_task']
 if is_running:
     st.markdown(f"""<div class="loader-container"><div class="spinner"></div><div class="loader-text">{task['progress_msg']} <br><span style='font-size:0.85rem; color:var(--text-color); opacity:0.75; font-weight:500;'>작업 중에도 다른 메뉴로 자유롭게 이동하실 수 있습니다.</span></div></div>""", unsafe_allow_html=True)
+
+if task['status'] == 'error':
+    st.error(f"❌ AI 분석 작업 중 오류가 발생했습니다: {task['error_msg']}")
 
 # ==========================================
 # 6. 서류 분석 / 생성 Master
@@ -1188,7 +1203,6 @@ if menu == "서류 분석 / 생성 Master":
             curr_currency = currency if currency else "KRW"
             curr_sym = get_currency_symbol(curr_currency)
 
-            # 💱 통화 변경 시 실시간 환율 연동 변환
             if 'last_currency' not in st.session_state: st.session_state['last_currency'] = curr_currency
             last_curr = st.session_state['last_currency']
             if last_curr != curr_currency and last_curr and curr_currency:
@@ -1412,7 +1426,7 @@ elif menu == "서류 관리 대장":
     with tab_our: render_ledger_tab(OUR_DB_FILE, "our_doc")
     with tab_cust: render_ledger_tab(CUSTOMER_DB_FILE, "cust_doc")
 
-    # 통합 AI 서류 대장 수집기
+    # 🎯 [통합 AI 서류 대장 수집기 결과 표 표시부 강화]
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (서류 대장 수집)</div>', unsafe_allow_html=True)
         
@@ -1451,19 +1465,22 @@ elif menu == "서류 관리 대장":
             st.session_state['temp_doc_ledger_upload'] = clean_df(task['result'])
             st.session_state['bg_task']['status'] = 'idle'
 
-        if 'temp_doc_ledger_upload' in st.session_state and not st.session_state['temp_doc_ledger_upload'].empty:
-            st.dataframe(st.session_state['temp_doc_ledger_upload'], use_container_width=True)
-            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_ledger_parse_pwd")
-            if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_doc_ledger_final_save"):
-                if db_parse_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                else:
-                    target_file = OUR_DB_FILE if "자사" in target_ledger_choice else CUSTOMER_DB_FILE
-                    existing_db = safe_read_csv(target_file, doc_db_cols)
-                    updated_db = safe_merge_db(existing_db, st.session_state['temp_doc_ledger_upload'], doc_db_cols)
-                    safe_save_csv(updated_db, target_file, doc_db_cols)
-                    del st.session_state['temp_doc_ledger_upload']
-                    st.success("Successfully saved to Document Ledger.")
-                    st.rerun()
+        if 'temp_doc_ledger_upload' in st.session_state:
+            if not st.session_state['temp_doc_ledger_upload'].empty:
+                st.dataframe(st.session_state['temp_doc_ledger_upload'], use_container_width=True)
+                db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_ledger_parse_pwd")
+                if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_doc_ledger_final_save"):
+                    if db_parse_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        target_file = OUR_DB_FILE if "자사" in target_ledger_choice else CUSTOMER_DB_FILE
+                        existing_db = safe_read_csv(target_file, doc_db_cols)
+                        updated_db = safe_merge_db(existing_db, st.session_state['temp_doc_ledger_upload'], doc_db_cols)
+                        safe_save_csv(updated_db, target_file, doc_db_cols)
+                        del st.session_state['temp_doc_ledger_upload']
+                        st.success("Successfully saved to Document Ledger.")
+                        st.rerun()
+            else:
+                st.warning("⚠️ 파싱된 서류 헤더 데이터가 없거나 응답 형식을 처리하지 못했습니다.")
 
 # ==========================================
 # 8. 자재 단가 마스터 DB
@@ -1527,7 +1544,7 @@ elif menu == "자재 단가 마스터 DB":
             st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
         else: st.info("등록된 자재/품목 데이터가 없습니다. 아래 AI 수집기를 이용하여 공급사 가격표를 수집해 보세요.")
 
-    # 🤖 AI 자재 단가 수집기 (UI 및 로직 완벽 연동)
+    # 🎯 [통합 AI 자재 단가 수집기 결과 표 표시부 강화]
     with st.container(border=True):
         st.markdown(f'<div class="section-title">🤖 AI 자재 단가 수집기 (공급사 가격표 전수 파싱)</div>', unsafe_allow_html=True)
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="item_ai_mode")
@@ -1563,17 +1580,20 @@ elif menu == "자재 단가 마스터 DB":
             st.session_state['temp_item_master_upload'] = clean_df(task['result'])
             st.session_state['bg_task']['status'] = 'idle'
 
-        if 'temp_item_master_upload' in st.session_state and not st.session_state['temp_item_master_upload'].empty:
-            st.dataframe(st.session_state['temp_item_master_upload'], use_container_width=True)
-            db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="item_parse_pwd")
-            if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_item_final_save"):
-                if db_parse_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                else:
-                    updated_db = safe_merge_db(item_df, st.session_state['temp_item_master_upload'], item_master_cols)
-                    safe_save_csv(updated_db, ITEM_MASTER_FILE, item_master_cols)
-                    del st.session_state['temp_item_master_upload']
-                    st.success("Successfully saved to Item Master DB.")
-                    st.rerun()
+        if 'temp_item_master_upload' in st.session_state:
+            if not st.session_state['temp_item_master_upload'].empty:
+                st.dataframe(st.session_state['temp_item_master_upload'], use_container_width=True)
+                db_parse_pwd = st.text_input(t("pwd_save_label"), type="password", key="item_parse_pwd")
+                if st.button(t("btn_final_db_save"), disabled=is_running, key="btn_item_final_save"):
+                    if db_parse_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
+                    else:
+                        updated_db = safe_merge_db(item_df, st.session_state['temp_item_master_upload'], item_master_cols)
+                        safe_save_csv(updated_db, ITEM_MASTER_FILE, item_master_cols)
+                        del st.session_state['temp_item_master_upload']
+                        st.success("Successfully saved to Item Master DB.")
+                        st.rerun()
+            else:
+                st.warning("⚠️ 파싱된 자재 항목 데이터가 없거나 응답 형식을 처리하지 못했습니다.")
 
 # ==========================================
 # 9. 관리자 메뉴
