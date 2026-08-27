@@ -383,9 +383,9 @@ def get_google_user_info(code):
     token_url = "https://oauth2.googleapis.com/token"
     payload = urllib.parse.urlencode({
         "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
+        "client_id": GOOGLE_CLIENT_ID.strip(),
+        "client_secret": GOOGLE_CLIENT_SECRET.strip(),
+        "redirect_uri": REDIRECT_URI.strip(),
         "grant_type": "authorization_code"
     }).encode('utf-8')
     
@@ -752,14 +752,21 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
+def _sync_local_cache(df, filepath, default_cols):
+    # 구글 시트(원본)에서 읽어온 데이터를 로컬 CSV 캐시에만 반영합니다.
+    # (safe_save_csv와 달리 시트로 재업로드하지 않아, 매 리런마다 발생하던
+    #  불필요한 Google Sheets API 쓰기 요청을 방지합니다.)
+    cleaned_df = ensure_cols(clean_df(df), default_cols)
+    cleaned_df.to_csv(filepath, index=False)
+
 our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
-safe_save_csv(our_db_init, OUR_DB_FILE, doc_db_cols)
+_sync_local_cache(our_db_init, OUR_DB_FILE, doc_db_cols)
 
 customer_db_init = ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols)
-safe_save_csv(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
+_sync_local_cache(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
 
 item_master_init = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
-safe_save_csv(item_master_init, ITEM_MASTER_FILE, item_master_cols)
+_sync_local_cache(item_master_init, ITEM_MASTER_FILE, item_master_cols)
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
