@@ -1476,7 +1476,7 @@ if menu == "서류 분석 / 생성 Master":
                         st.success(f"🎉 스마트 일괄 등록 완료!\n- 인풋 타사 서류 → 고객사/공급사 대장 저장\n- 새로 생성한 {doc_type} → 자사 대장 저장\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
             with btn_col2:
-                if st.button("🏢 자사 대장에 생성 서류 등록", key="btn_reg_header_only", disabled=is_running):
+                if st.button("🏢 서류 대장에 서류 일괄 등록", key="btn_reg_header_only", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
                         save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
