@@ -564,7 +564,7 @@ INLINE_HTML_TEMPLATE = """
         @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
     }
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
-    div.header-repeat { position: fixed; top: -18mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 2px; }
+    div.header-repeat { position: fixed; top: -25mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 4px; }
     .header-table { width: 100%; border-collapse: collapse; border: none !important; margin: 0 !important; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
