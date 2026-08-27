@@ -1070,8 +1070,26 @@ if st.session_state.get('user_email'):
 
 # 🎯 Powered by Gemini 3.6 배너 & 실시간 환율 카드 통합 코드
 
-# 1. Powered by Gemini 3.6 배너
-st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 12px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
+# 🎯 [Powered by Gemini 3.6 배너 - 형광 주황 네온 스타일]
+st.sidebar.markdown("""
+<div style="
+    background: rgba(255, 85, 0, 0.12);
+    border: 1.5px solid #FF5500;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+    margin-bottom: 12px;
+    box-shadow: 0 0 12px rgba(255, 85, 0, 0.3);
+">
+    <span style="
+        color: #FF5500;
+        font-size: 0.85rem;
+        font-weight: 800;
+        text-shadow: 0 0 8px rgba(255, 85, 0, 0.5);
+        letter-spacing: 0.3px;
+    ">Powered by Gemini 3.6</span>
+</div>
+""", unsafe_allow_html=True)
 
 # 2. 실시간 환율 데이터 계산
 live_rates, rate_time = get_exchange_rates()
