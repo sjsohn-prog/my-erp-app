@@ -1068,7 +1068,12 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-# 🎯 실시간 환율 계산 및 Powered by Gemini 3.6 디자인 통일 카드
+# 🎯 Powered by Gemini 3.6 배너 & 실시간 환율 카드 통합 코드
+
+# 1. Powered by Gemini 3.6 배너
+st.sidebar.markdown("""<div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; text-align: center; margin-bottom: 12px;"><span style="color: #0284C7; font-size: 0.85rem; font-weight: 800;">Powered by Gemini 3.6</span></div>""", unsafe_allow_html=True)
+
+# 2. 실시간 환율 데이터 계산
 live_rates, rate_time = get_exchange_rates()
 usd_krw = live_rates.get("KRW", 1350.0)
 eur_usd = live_rates.get("EUR", 0.92)
@@ -1076,6 +1081,7 @@ eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
+# 3. 실시간 환율 카드
 st.sidebar.markdown(f"""
 <div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px;">
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
