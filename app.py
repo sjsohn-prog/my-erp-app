@@ -1077,36 +1077,21 @@ eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
-# 🎯 [실시간 매매기준율 전용 고급 카드 컨테이너]
+# 🎯 [환율 카드 위젯 (제목 / 새로고침 / 최근 갱신 제거 버전)]
 with st.sidebar.container(border=True):
-    st.markdown('<div class="rate-card-anchor"></div>', unsafe_allow_html=True)
-    r_head_col1, r_head_col2 = st.columns([0.75, 0.25], gap="small")
-    with r_head_col1:
-        st.markdown('<div style="display:flex; align-items:center; height:24px;"><span style="color:#38BDF8; font-size:0.83rem; font-weight:800; letter-spacing:-0.3px; white-space:nowrap;">💱 실시간 매매기준율</span></div>', unsafe_allow_html=True)
-    with r_head_col2:
-        st.markdown('<div class="rate-refresh-btn-container">', unsafe_allow_html=True)
-        if st.button("🔄", key="btn_refresh_exchange_rates", help="환율 실시간 새로고침"):
-            st.cache_data.clear()
-            st.toast("💱 실시간 매매기준율 정보가 새로고침 되었습니다.", icon="🔄")
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    
     st.markdown(f"""
-    <div style="margin-top: 2px; background: rgba(2, 132, 199, 0.1); border-radius: 8px; padding: 8px 10px; border: 1px solid #0284C7;">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
+    <div style="background: rgba(2, 132, 199, 0.1); border-radius: 8px; padding: 6px 10px; border: 1px solid #0284C7;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
             <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇺🇸 USD / KRW</span>
             <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{usd_krw:,.2f} 원</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
             <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇪🇺 EUR / KRW</span>
             <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{eur_krw:,.2f} 원</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0;">
             <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇸🇬 SGD / KRW</span>
             <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{sgd_krw:,.2f} 원</span>
-        </div>
-        <div style="margin-top: 4px; text-align: right; font-size: 0.68rem; color: #64748B;">
-            ⏱️ 최근 갱신: {rate_time} (KST)
         </div>
     </div>
     """, unsafe_allow_html=True)
