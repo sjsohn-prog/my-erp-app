@@ -98,7 +98,7 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
-# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 보완 함수
+# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 함수
 def extract_list_from_json_res(res):
     if isinstance(res, list):
         return res
@@ -785,7 +785,8 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 요청 실패: {last_err}")
 
-def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode):
+# 📌 1. 서류 분석/생성 Master AI 파싱 (시트 지정/전체 선택 적용)
+def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
         mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
@@ -828,7 +829,8 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         elif file_ext == 'pdf': content = {"mime_type": "application/pdf", "data": file_bytes}
         elif file_ext in ['xlsx', 'xls']:
             xl = pd.ExcelFile(io.BytesIO(file_bytes))
-            sheets_txt = [f"--- Sheet: {s} ---\n" + pd.read_excel(xl, sheet_name=s).dropna(how='all').dropna(how='all', axis=1).to_csv(index=False) for s in xl.sheet_names]
+            sheets_to_parse = sheet_names if sheet_names else xl.sheet_names
+            sheets_txt = [f"--- Sheet: {s} ---\n" + pd.read_excel(xl, sheet_name=s).dropna(how='all').dropna(how='all', axis=1).to_csv(index=False) for s in sheets_to_parse]
             content = "Excel Content:\n" + "\n\n".join(sheets_txt)
         elif file_ext == 'csv':
             try: content = "CSV Table Content:\n" + pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1).to_csv(index=False)
@@ -842,7 +844,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 🛠️ [PDF / 이미지 / 엑셀 유연한 JSON 처리로 전면 수정된 AI 서류 대장 수집기]
+# 📌 2. 서류 관리 대장 AI 수집기 (시트 지정/전체 선택 적용 + JSON 리스트 유연성 보완)
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -855,7 +857,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
 
         all_results = []
         db_prompt = """
-        Extract document headers/summaries from the provided file into a JSON Array matching this exact structure:
+        Extract document headers/summaries from the provided file into a JSON Array of objects matching this exact structure:
         [
             {
                 "IssueDate": "YYYY-MM-DD",
@@ -910,7 +912,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 🛠️ [PDF / 이미지 / 엑셀 유연한 JSON 처리로 전면 수정된 AI 자재 단가 수집기]
+# 📌 3. 자재 단가 마스터 AI 수집기 (시트 지정/전체 선택 적용 + JSON 리스트 유연성 보완)
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -1155,15 +1157,36 @@ if menu == "서류 분석 / 생성 Master":
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
+        # 📌 서류 분석 / 생성 Master 엑셀 시트 선택 UI 구현
         with st.expander(t("ai_expander_title"), expanded=False):
             ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
             uploaded_doc = st.file_uploader(t("upload_doc_label"), type=["pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"], accept_multiple_files=False, disabled=is_running)
             
-            if uploaded_doc and st.button(t("btn_ai_parse"), disabled=is_running):
-                st.session_state['bg_task']['type'] = 'doc_parse'
-                start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode))
-                st.rerun()
+            if uploaded_doc:
+                up_ext = uploaded_doc.name.split('.')[-1].lower()
+                if up_ext in ['xlsx', 'xls']:
+                    try:
+                        excel_obj = pd.ExcelFile(io.BytesIO(uploaded_doc.getvalue()))
+                        sheet_names = excel_obj.sheet_names
+                        parse_mode = st.radio(t("parse_mode"), [t("parse_mode_sheet"), t("parse_mode_all")], horizontal=True, disabled=is_running, key="doc_gen_parse_mode")
+                        if parse_mode == t("parse_mode_sheet"):
+                            selected_sheet = st.selectbox(t("select_sheet"), sheet_names, disabled=is_running, key="doc_gen_sheet_sel")
+                            if st.button(t("btn_ai_parse"), disabled=is_running, key="btn_doc_gen_analyze_sheet"):
+                                st.session_state['bg_task']['type'] = 'doc_parse'
+                                start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode, [selected_sheet]))
+                                st.rerun()
+                        else:
+                            if st.button(t("btn_parse_all"), disabled=is_running, key="btn_doc_gen_parse_all"):
+                                st.session_state['bg_task']['type'] = 'doc_parse'
+                                start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode, sheet_names))
+                                st.rerun()
+                    except Exception as e: st.error(f"❌ 엑셀 로딩 오류: {e}")
+                else:
+                    if st.button(t("btn_ai_parse"), disabled=is_running, key="btn_doc_gen_analyze_direct"):
+                        st.session_state['bg_task']['type'] = 'doc_parse'
+                        start_bg_thread(run_bg_doc_parse, (st.session_state['bg_task'], gemini_key, uploaded_doc.getvalue(), uploaded_doc.name, doc_type, selected_mode, []))
+                        st.rerun()
 
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
@@ -1426,7 +1449,7 @@ elif menu == "서류 관리 대장":
     with tab_our: render_ledger_tab(OUR_DB_FILE, "our_doc")
     with tab_cust: render_ledger_tab(CUSTOMER_DB_FILE, "cust_doc")
 
-    # 🎯 [통합 AI 서류 대장 수집기 결과 표 표시부 강화]
+    # 📌 서류 관리 대장 엑셀 시트 선택 UI 구현
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (서류 대장 수집)</div>', unsafe_allow_html=True)
         
@@ -1544,7 +1567,7 @@ elif menu == "자재 단가 마스터 DB":
             st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
         else: st.info("등록된 자재/품목 데이터가 없습니다. 아래 AI 수집기를 이용하여 공급사 가격표를 수집해 보세요.")
 
-    # 🎯 [통합 AI 자재 단가 수집기 결과 표 표시부 강화]
+    # 📌 자재 단가 마스터 엑셀 시트 선택 UI 구현
     with st.container(border=True):
         st.markdown(f'<div class="section-title">🤖 AI 자재 단가 수집기 (공급사 가격표 전수 파싱)</div>', unsafe_allow_html=True)
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="item_ai_mode")
