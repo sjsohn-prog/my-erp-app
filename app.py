@@ -60,11 +60,13 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
+# 서류 대장 컬럼 (헤더 정보 중심)
 doc_db_cols = [
     "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
     "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
 ]
 
+# 자재 단가 마스터 컬럼
 item_master_cols = [
     "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
@@ -98,17 +100,22 @@ def ensure_cols(df, target_cols):
             df[col] = "-"
     return df[target_cols]
 
-# AI 응답 JSON 결과에서 유연하게 리스트 추출하는 함수
-def extract_list_from_json_res(res):
+# 🎯 [핵심 버그 수정] Gemini AI가 어떤 형태의 JSON으로 응답해도 유연하게 항목 리스트만 정밀 추출
+def extract_items_list(res):
     if isinstance(res, list):
         return res
     if isinstance(res, dict):
+        for k in ["items", "data", "records", "rows", "parts", "materials", "documents", "headers", "result"]:
+            if k in res and isinstance(res[k], list):
+                return res[k]
         for v in res.values():
             if isinstance(v, list):
                 return v
-        return [res]
+        if any(k in res for k in ["PartNo", "ItemName", "IssueDate", "DocType", "OurRef"]):
+            return [res]
     return []
 
+# 🌐 실시간 매매기준율 환율 수집 함수 (1시간 캐싱)
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
     fallback_rates = {
@@ -785,7 +792,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
 
     raise Exception(f"Gemini API 요청 실패: {last_err}")
 
-# 📌 1. 서류 분석/생성 Master AI 파싱 (시트 지정/전체 선택 적용)
+# 📌 1. 서류 분석/생성 Master AI 파싱
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
@@ -844,7 +851,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 2. 서류 관리 대장 AI 수집기 (시트 지정/전체 선택 적용 + JSON 리스트 유연성 보완)
+# 📌 2. 서류 관리 대장 AI 수집기 (버그 정밀 해결)
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -882,8 +889,8 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
-            extracted = extract_list_from_json_res(res)
-            all_results.extend(extracted)
+            extracted = extract_items_list(res)
+            if extracted: all_results.extend(extracted)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
             sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
@@ -893,17 +900,22 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
                     df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
                     if not df_clean.empty:
                         res = get_ai_response(api_key, [db_prompt, f"Sheet '{s_name}' CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        extracted = extract_list_from_json_res(res)
-                        all_results.extend(extracted)
+                        extracted = extract_items_list(res)
+                        if extracted: all_results.extend(extracted)
                 except Exception: pass
         elif file_ext == 'csv':
             try:
                 df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    extracted = extract_list_from_json_res(res)
-                    all_results.extend(extracted)
+                    extracted = extract_items_list(res)
+                    if extracted: all_results.extend(extracted)
             except Exception: pass
+
+        if not all_results:
+            task_state['status'] = 'error'
+            task_state['error_msg'] = "파싱된 서류 데이터가 없습니다. 업로드된 문서의 내용이나 API 키를 확인해 주세요."
+            return
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), doc_db_cols)
         task_state['result'] = clean_df(parsed_df)
@@ -912,7 +924,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
-# 📌 3. 자재 단가 마스터 AI 수집기 (시트 지정/전체 선택 적용 + JSON 리스트 유연성 보완)
+# 📌 3. 자재 단가 마스터 AI 수집기 (버그 정밀 해결)
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
@@ -938,7 +950,7 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
                 "PartNo": "",
                 "ItemName": "",
                 "Description": "",
-                "Supplier": "공급사명",
+                "Supplier": "공급사명 (예: (주)더주원)",
                 "BuyPrice": 0.0,
                 "ListPrice": 0.0,
                 "Currency": "KRW",
@@ -950,8 +962,8 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [item_prompt, content], mode=ai_mode)
-            extracted = extract_list_from_json_res(res)
-            all_results.extend(extracted)
+            extracted = extract_items_list(res)
+            if extracted: all_results.extend(extracted)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
             sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
@@ -960,18 +972,23 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
                 try:
                     df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
                     if not df_clean.empty:
-                        res = get_ai_response(api_key, [item_prompt, f"Sheet '{s_name}' Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        extracted = extract_list_from_json_res(res)
-                        all_results.extend(extracted)
+                        res = get_ai_response(api_key, [item_prompt, f"Excel Content (Sheet: {s_name}):\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        extracted = extract_items_list(res)
+                        if extracted: all_results.extend(extracted)
                 except Exception: pass
         elif file_ext == 'csv':
             try:
                 df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [item_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    extracted = extract_list_from_json_res(res)
-                    all_results.extend(extracted)
+                    extracted = extract_items_list(res)
+                    if extracted: all_results.extend(extracted)
             except Exception: pass
+
+        if not all_results:
+            task_state['status'] = 'error'
+            task_state['error_msg'] = "파싱된 자재 데이터가 없습니다. AI 응답을 확인해 주세요."
+            return
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), item_master_cols)
         task_state['result'] = clean_df(parsed_df)
@@ -1157,7 +1174,6 @@ if menu == "서류 분석 / 생성 Master":
     left_col, right_col = st.columns([5, 5])
 
     with left_col:
-        # 📌 서류 분석 / 생성 Master 엑셀 시트 선택 UI 구현
         with st.expander(t("ai_expander_title"), expanded=False):
             ai_mode_choice = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running)
             selected_mode = "thinking" if "Thinking" in ai_mode_choice or "사고" in ai_mode_choice else "flash"
@@ -1449,7 +1465,7 @@ elif menu == "서류 관리 대장":
     with tab_our: render_ledger_tab(OUR_DB_FILE, "our_doc")
     with tab_cust: render_ledger_tab(CUSTOMER_DB_FILE, "cust_doc")
 
-    # 📌 서류 관리 대장 엑셀 시트 선택 UI 구현
+    # AI 서류 대장 수집기
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (서류 대장 수집)</div>', unsafe_allow_html=True)
         
@@ -1502,8 +1518,6 @@ elif menu == "서류 관리 대장":
                         del st.session_state['temp_doc_ledger_upload']
                         st.success("Successfully saved to Document Ledger.")
                         st.rerun()
-            else:
-                st.warning("⚠️ 파싱된 서류 헤더 데이터가 없거나 응답 형식을 처리하지 못했습니다.")
 
 # ==========================================
 # 8. 자재 단가 마스터 DB
@@ -1567,7 +1581,7 @@ elif menu == "자재 단가 마스터 DB":
             st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
         else: st.info("등록된 자재/품목 데이터가 없습니다. 아래 AI 수집기를 이용하여 공급사 가격표를 수집해 보세요.")
 
-    # 📌 자재 단가 마스터 엑셀 시트 선택 UI 구현
+    # AI 자재 단가 수집기
     with st.container(border=True):
         st.markdown(f'<div class="section-title">🤖 AI 자재 단가 수집기 (공급사 가격표 전수 파싱)</div>', unsafe_allow_html=True)
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="item_ai_mode")
@@ -1615,8 +1629,6 @@ elif menu == "자재 단가 마스터 DB":
                         del st.session_state['temp_item_master_upload']
                         st.success("Successfully saved to Item Master DB.")
                         st.rerun()
-            else:
-                st.warning("⚠️ 파싱된 자재 항목 데이터가 없거나 응답 형식을 처리하지 못했습니다.")
 
 # ==========================================
 # 9. 관리자 메뉴
