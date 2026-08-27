@@ -357,17 +357,27 @@ def t(key, **kwargs):
 # 0-3. 구글 OAuth 로그인 필수 함수
 # ==========================================
 def get_google_auth_url():
-    if not GOOGLE_CLIENT_ID or not REDIRECT_URI: return None
+    if not GOOGLE_CLIENT_ID or not REDIRECT_URI:
+        return None
+    
+    # scope 필수 항목 (이메일, 프로필, openid)
+    scopes = [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "openid"
+    ]
+    
     params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
+        "client_id": GOOGLE_CLIENT_ID.strip(),
+        "redirect_uri": REDIRECT_URI.strip(),
         "response_type": "code",
-        # scope를 정확한 구글 표준 URL 형태로 지정
-        "scope": "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid",
+        "scope": " ".join(scopes),
         "access_type": "offline",
         "prompt": "select_account"
     }
-    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    
+    # quote_via를 사용하여 공백을 %20으로 정확히 인코딩
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params, quote_via=urllib.parse.quote)}"
 
 def get_google_user_info(code):
     token_url = "https://oauth2.googleapis.com/token"
