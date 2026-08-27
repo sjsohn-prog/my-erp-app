@@ -336,7 +336,7 @@ def t(key, **kwargs):
     return text.format(**kwargs) if kwargs else text
 
 # ==========================================
-# 0-3. 구글 OAuth 로그인 필수 함수 (오류 해결 버전)
+# 0-3. 구글 OAuth 로그인 필수 함수
 # ==========================================
 def get_google_auth_url():
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI: return None
@@ -823,7 +823,10 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
             xl = pd.ExcelFile(io.BytesIO(file_bytes))
             sheets_txt = [f"--- Sheet: {s} ---\n" + pd.read_excel(xl, sheet_name=s).dropna(how='all').dropna(how='all', axis=1).to_csv(index=False) for s in xl.sheet_names]
             content = "Excel Content:\n" + "\n\n".join(sheets_txt)
-        else: content = file_bytes.decode('utf-8', errors='ignore')
+        elif file_ext == 'csv':
+            try: content = "CSV Table Content:\n" + pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all').dropna(how='all', axis=1).to_csv(index=False)
+            except Exception: content = "CSV Raw Content:\n" + file_bytes.decode('utf-8', errors='ignore')
+        else: content = {"mime_type": "application/pdf", "data": file_bytes}
 
         ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
         task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data, 'file_name': file_name}
@@ -837,24 +840,58 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'running'
         mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
+        
         file_ext = file_name.split('.')[-1].lower()
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        with open(save_path, "wb") as f: f.write(file_bytes)
+
         all_results = []
         
         db_prompt = """
-        Extract document headers/summaries from the provided file into a JSON Array matching exact structure:
-        [{"IssueDate": "YYYY-MM-DD", "DocDate": "YYYY-MM-DD", "DocType": "Quotation", "OurRef": "", "YourRef": "", "ShipName": "", "TargetName": "", "Currency": "KRW", "TotalAmount": 0.0, "ItemCount": 1, "CreatedBy": "", "Status": "🟡 Quoted"}]
+        Extract document headers/summaries from the provided file into a JSON Array of objects matching this exact structure:
+        [
+            {
+                "IssueDate": "YYYY-MM-DD",
+                "DocDate": "YYYY-MM-DD",
+                "DocType": "Quotation",
+                "OurRef": "Doc or Title Ref",
+                "YourRef": "",
+                "ShipName": "",
+                "TargetName": "Company Name",
+                "Currency": "KRW",
+                "TotalAmount": 0.0,
+                "ItemCount": 1,
+                "CreatedBy": "PIC Name",
+                "Status": "🟡 Quoted"
+            }
+        ]
+        CRITICAL RULES:
+        - DO NOT STOP AT BLANK ROWS in spreadsheets/documents. Scan completely to bottom.
+        - If multiple documents/sections exist in one file, create separate header entries.
         """
+
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
             if isinstance(res, list): all_results.extend(res)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
-            for s_name in (sheet_names if sheet_names else excel_file.sheet_names):
-                df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
+            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
+            for idx, s_name in enumerate(sheets_to_parse):
+                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 추출 중..."
+                try:
+                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
+                    if not df_clean.empty:
+                        res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        if isinstance(res, list): all_results.extend(res)
+                except Exception: pass
+        elif file_ext == 'csv':
+            try:
+                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
                     res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
+            except Exception: pass
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), doc_db_cols)
         task_state['result'] = clean_df(parsed_df)
@@ -863,29 +900,64 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
         task_state['status'] = 'error'
         task_state['error_msg'] = str(e)
 
+# 🚨 [완벽 원복된 AI 자재 단가 수집기 분석 엔진]
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
         mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
+        
         file_ext = file_name.split('.')[-1].lower()
+        save_path = os.path.join(INPUT_DOCS_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
+        with open(save_path, "wb") as f: f.write(file_bytes)
+
         all_results = []
         
         item_prompt = """
-        Extract ALL individual material/part price items from provided file into a JSON Array.
-        [{"PartNo": "", "ItemName": "", "Description": "", "Supplier": "", "BuyPrice": 0.0, "ListPrice": 0.0, "Currency": "KRW", "Remarks": ""}]
+        Extract ALL individual material/part price items from the provided file into a JSON Array.
+
+        CRITICAL PARSING RULES:
+        1. DO NOT STOP AT BLANK ROWS: Scan top to bottom completely. Parse every valid item row.
+        2. Extract PartNo, ItemName, Description, Supplier, BuyPrice, ListPrice, Currency, Remarks.
+        3. If BuyPrice or ListPrice has text like "(부가세 별도)" or notes, extract numerical price into BuyPrice/ListPrice and put notes into Remarks.
+
+        Expected JSON Array Format:
+        [
+            {
+                "PartNo": "",
+                "ItemName": "",
+                "Description": "",
+                "Supplier": "공급사명 (예: (주)더주원)",
+                "BuyPrice": 0.0,
+                "ListPrice": 0.0,
+                "Currency": "KRW",
+                "Remarks": ""
+            }
+        ]
         """
+
         if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
             content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
             res = get_ai_response(api_key, [item_prompt, content], mode=ai_mode)
             if isinstance(res, list): all_results.extend(res)
         elif file_ext in ['xlsx', 'xls']:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
-            for s_name in (sheet_names if sheet_names else excel_file.sheet_names):
-                df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
+            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
+            for idx, s_name in enumerate(sheets_to_parse):
+                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 자재 파싱 중..."
+                try:
+                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
+                    if not df_clean.empty:
+                        res = get_ai_response(api_key, [item_prompt, f"Excel Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                        if isinstance(res, list): all_results.extend(res)
+                except Exception: pass
+        elif file_ext == 'csv':
+            try:
+                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
                 if not df_clean.empty:
-                    res = get_ai_response(api_key, [item_prompt, f"Excel Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
+                    res = get_ai_response(api_key, [item_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
                     if isinstance(res, list): all_results.extend(res)
+            except Exception: pass
 
         parsed_df = ensure_cols(pd.DataFrame(all_results), item_master_cols)
         task_state['result'] = clean_df(parsed_df)
@@ -981,7 +1053,6 @@ if menu == "서류 분석 / 생성 Master":
     db_our_ref_options = sorted(list(set([str(x).strip() for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
     db_your_ref_options = sorted(list(set([str(x).strip() for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
 
-    # 🚨 [AI 분석 결과 동기화 및 수발신자 반전 로직 핵심 복구부]
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
         file_name = task['result'].get('file_name', '')
@@ -1017,7 +1088,6 @@ if menu == "서류 분석 / 생성 Master":
         parsed_items = ai_data.get("items", [])
         parsed_tot_val = sum([safe_float(p.get("Amount", 0)) or (safe_float(p.get("Qty", 0)) * safe_float(p.get("UnitPrice", 0))) for p in parsed_items])
 
-        # 타사 인풋 서류 대장 연동 정보 세션 저장
         st.session_state['parsed_input_doc'] = {
             "DocType": clean_str(ai_data.get("doc_type", doc_type)) or "Invoice",
             "YourRef": your_ref_val or clean_str(ai_data.get("our_ref", "")) or file_name,
@@ -1039,7 +1109,6 @@ if menu == "서류 분석 / 생성 Master":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        # 🎯 [핵심] render_unified_input 위젯과의 직접 세션 키 주입 동기화
         def set_widget_val(prefix, val):
             st.session_state[f"{prefix}_sel"] = val
             st.session_state[f"{prefix}_txt"] = val
@@ -1458,7 +1527,7 @@ elif menu == "자재 단가 마스터 DB":
             st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
         else: st.info("등록된 자재/품목 데이터가 없습니다. 아래 AI 수집기를 이용하여 공급사 가격표를 수집해 보세요.")
 
-    # AI 자재 단가 수집기
+    # 🤖 AI 자재 단가 수집기 (UI 및 로직 완벽 연동)
     with st.container(border=True):
         st.markdown(f'<div class="section-title">🤖 AI 자재 단가 수집기 (공급사 가격표 전수 파싱)</div>', unsafe_allow_html=True)
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="item_ai_mode")
