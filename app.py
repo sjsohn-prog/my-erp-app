@@ -1093,25 +1093,6 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 🎯 [환율 카드 위젯 (제목 / 새로고침 / 최근 갱신 제거 버전)]
-with st.sidebar.container(border=True):
-    st.markdown(f"""
-    <div style="background: rgba(2, 132, 199, 0.1); border-radius: 8px; padding: 6px 10px; border: 1px solid #0284C7;">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
-            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇺🇸 USD / KRW</span>
-            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{usd_krw:,.2f} 원</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
-            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇪🇺 EUR / KRW</span>
-            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{eur_krw:,.2f} 원</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0;">
-            <span style="font-size: 0.78rem; color: #94A3B8; font-weight: 600;">🇸🇬 SGD / KRW</span>
-            <span style="font-size: 0.82rem; color: #F1F5F9; font-weight: 700; font-family: monospace;">{sgd_krw:,.2f} 원</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
 menu_options = [t("menu_gen"), t("menu_doc_ledger"), t("menu_item_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
