@@ -5,5 +5,5 @@ libffi-dev
 libjpeg-dev
 libopenjp2-7-dev
 libcairo2
-libgdk-pixbuf2.0-0
+libgdk-pixbuf-2.0-0
 shared-mime-info
