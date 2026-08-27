@@ -592,18 +592,24 @@ INLINE_HTML_TEMPLATE = """
     <div class="header-repeat">
         <table class="header-table">
             <tr>
-                <td style="text-align: left; width: 50%;">
+                <td style="text-align: left; width: 50%; vertical-align: bottom;">
                     {% if logo_base64 %}
                     <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 58px;" />
                     {% else %}
                     <span style="font-size: 18pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
                     {% endif %}
                 </td>
-                <td style="text-align: right; width: 50%;">
+                <td style="text-align: right; width: 50%; vertical-align: bottom;">
                     <div class="doc-title-text">{{ doc_title }}</div>
                 </td>
             </tr>
         </table>
+        
+        <!-- 🎯 굵은 밑줄 바로 위에 들어가는 회사 주소 및 연락처 정보 -->
+        <div style="text-align: center; margin-top: 6px; font-size: 7.5pt; font-style: italic; line-height: 1.25; color: #000;">
+            Address: Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733, Republic of Korea<br>
+            TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr, tech@1solution.co.kr
+        </div>
     </div>
 
     <table class="hdr-table">
