@@ -560,29 +560,32 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     @page { 
-        size: A4; 
-        /* 🎯 상단 헤더 영역이 길어졌으므로 여백을 25mm -> 32mm로 늘려 본문 겹침 방지 */
-        margin-top: 32mm; 
-        margin-bottom: 12mm; 
-        margin-left: 8mm; 
-        margin-right: 8mm;
+        size: A4; margin-top: 25mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
         @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
     }
     body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
-    
-    /* 🎯 헤더 고정 영역 높이 및 테두리 설정 */
-    div.header-repeat { 
-        position: fixed; 
-        top: -25mm; 
-        left: 0; 
-        right: 0; 
-        width: 100%; 
-        border-bottom: 2.5px solid #000; 
-        padding-bottom: 4px; 
-    }
+    div.header-repeat { position: fixed; top: -18mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 2px; }
     .header-table { width: 100%; border-collapse: collapse; border: none !important; margin: 0 !important; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
+    table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
+    table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
+    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; }
+    table.data-table thead { display: table-header-group; }
+    table.data-table tbody { display: table-row-group; }
+    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
+    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 3px 5px; vertical-align: middle; }
+    .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
+    .hdr-value { width: 34%; font-size: 8.5pt; }
+    .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
+    .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
+    .col-no { width: 5%; text-align: center; }
+    .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
+    .col-qty { width: 8%; text-align: center; }
+    .col-price { width: 16%; text-align: right !important; }
+    .col-amt { width: 16%; text-align: right !important; }
+    .remarks-box { border: 0.9px solid #000; padding: 3px 5px; margin-top: 2px; font-size: 8.5pt; line-height: 1.15; font-style: italic; page-break-inside: avoid !important; }
+    .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
 <body>
