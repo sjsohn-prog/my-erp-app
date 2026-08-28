@@ -151,6 +151,7 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
+# 세션 상태 안전 초기화
 if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
@@ -357,7 +358,6 @@ def render_date_input(label, current_val, key_prefix):
 
     col_in, col_pop = st.columns([0.88, 0.12])
     with col_in:
-        # 🎯 Date 라벨 이모지를 ▾ 로 수정하여 타 위젯과 디자인 완벽 통일
         user_val = st.text_input(f"▾ {label}", key=txt_key)
         formatted_val = format_date_str(user_val)
         if formatted_val != user_val:
@@ -589,7 +589,7 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
     st.session_state['draft_loaded_for_user'] = user_email_key
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (Autofit 정밀 개선)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -610,7 +610,6 @@ INLINE_HTML_TEMPLATE = """
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
     
-    /* 🎯 PDF 표 높이 Autofit 및 No. - Description 간격 밀착 조정 */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; table-layout: fixed; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
@@ -779,7 +778,6 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         item_copy['ItemName'] = clean_str(item_copy.get('ItemName', '')).strip()
         item_copy['PartNo'] = clean_str(item_copy.get('PartNo', '')).strip()
         
-        # 🎯 개행문자 정제 (불필요한 공백 라인 생성 제거)
         desc = clean_str(item_copy.get('Description', '')).strip()
         desc = re.sub(r'\n\s*\n', '\n', desc)
         item_copy['Description'] = desc
@@ -874,6 +872,41 @@ def save_items_to_master(items_df, supplier_name="자사 서류 생성", currenc
 def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
+
+# ==========================================
+# 4. AI 파싱 엔진
+# ==========================================
+def get_ai_response(api_key, content_list, mode="flash"):
+    if not api_key or not str(api_key).strip(): 
+        raise Exception("Gemini API Key가 누락되었습니다.")
+    genai.configure(api_key=api_key.strip())
+    
+    primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
+    candidate_models = [primary_model] if primary_model == "gemini-3.6-flash" else [primary_model, "gemini-3.6-flash"]
+
+    last_err = None
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(content_list)
+                if response and response.text:
+                    res_text = response.text.strip()
+                    res_text = re.sub(r'```(?:json)?', '', res_text).replace('```', '').strip()
+                    
+                    s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
+                    e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
+                    if s_idx != -1 and e_idx != -1: 
+                        res_text = res_text[s_idx:e_idx + 1]
+                    return json.loads(res_text)
+            except Exception as e:
+                last_err = e
+                if ("429" in str(e) or "Quota" in str(e)) and attempt == 0:
+                    time.sleep(10)
+                    continue
+                break
+
+    raise Exception(f"Gemini API 요청 실패: {last_err}")
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
