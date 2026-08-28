@@ -602,8 +602,9 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # target="_top"으로 아이프레임 우회하여 브라우저 창 전환
-                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                # 자바스크립트를 이용해 현재 탭 전체(top window)를 구글 로그인으로 직접 전환
+                if st.button(t("google_login"), use_container_width=True, key="btn_google_login_submit"):
+                    st.components.v1.html(f"<script>window.top.location.href='{auth_url}';</script>", height=0)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
