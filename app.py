@@ -358,10 +358,10 @@ def render_date_input(label, current_val, key_prefix):
 
     col_in, col_pop = st.columns([0.88, 0.12])
     with col_in:
-        user_val = st.text_input(f"▾ {label}", key=txt_key)
+        # 위젯 key 분리를 통해 session_state 직접 수정 충돌 방지
+        user_val = st.text_input(f"▾ {label}", value=st.session_state[txt_key], key=f"{txt_key}_widget")
         formatted_val = format_date_str(user_val)
-        if formatted_val != user_val:
-            st.session_state[txt_key] = formatted_val
+        st.session_state[txt_key] = formatted_val
 
     with col_pop:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
