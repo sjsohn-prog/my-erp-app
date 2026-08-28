@@ -614,11 +614,30 @@ INLINE_HTML_TEMPLATE = """
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
+/* 🎯 기존 테이블 가로 너비 비율은 고정 유지 */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
-    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
-    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 3px 5px; vertical-align: middle; }
+    
+    /* 🎯 행 및 셀 높이 오토핏 (내용 줄수에 맞춰 높이 자동 확장) */
+    table.data-table tr { 
+        height: auto !important; 
+        page-break-inside: avoid !important; 
+        break-inside: avoid !important; 
+    }
+    table.data-table th, table.data-table td { 
+        border: 0.9px solid #000; 
+        padding: 4px 5px; 
+        vertical-align: middle; 
+        height: auto !important; /* 높이 고정 해제 및 내용 맞춤 */
+    }
+
+    /* 🎯 가로 너비 설정 (기존 비율 유지) */
+    .col-no { width: 5%; text-align: center; }
+    .col-desc { width: 55%; white-space: pre-wrap; word-break: break-word; } /* 엔터/줄바꿈 시 높이 자동 늘어남 */
+    .col-qty { width: 8%; text-align: center; }
+    .col-price { width: 16%; text-align: right !important; }
+    .col-amt { width: 16%; text-align: right !important; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
