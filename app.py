@@ -36,7 +36,7 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 페이지 설정 & 최상단 CSS
+# 0. 페이지 설정 & 최상단 CSS (로그인 화면 디자인 보존)
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
@@ -151,7 +151,7 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 세션 상태 안전 초기화
+# 세션 상태 초기화
 if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
@@ -589,7 +589,7 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
     st.session_state['draft_loaded_for_user'] = user_email_key
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (Autofit & box-sizing 완전 보완)
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -599,7 +599,6 @@ INLINE_HTML_TEMPLATE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     
-    /* 🎯 전체 요소 box-sizing 지정으로 오른쪽 영역 잘림 및 밀림 완전 차단 */
     * { box-sizing: border-box !important; }
     
     @page { 
@@ -614,7 +613,6 @@ INLINE_HTML_TEMPLATE = """
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
     
-    /* 🎯 PDF 표 높이 Autofit 및 가로 너비 안정적 배치 (오른쪽 단가/금액 짤림 방지) */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; table-layout: fixed; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
@@ -785,7 +783,6 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         desc = clean_str(item_copy.get('Description', '')).strip()
         rem = clean_str(item_copy.get('Remarks', '')).strip()
 
-        # ItemName과 Description 중복 처리
         if desc.lower() == iname.lower() or desc.lower() == pno.lower():
             desc = ""
 
