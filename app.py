@@ -217,8 +217,13 @@ def load_saved_key():
 
 gemini_key = load_saved_key()
 
-ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "admin0915")
-SAVE_PASSWORD = get_secret("SAVE_PASSWORD", "0915")
+# Secrets가 없을 경우 예외를 발생시키거나 접속을 차단해야 합니다.
+ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD")
+SAVE_PASSWORD = get_secret("SAVE_PASSWORD")
+
+if not ADMIN_PASSWORD or not SAVE_PASSWORD:
+    st.error("⚠️ 시스템 환경변수(Secrets)에 관리자 비밀번호가 설정되지 않았습니다.")
+    st.stop()
 
 FLAG_OPTIONS = ["Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
 CLASS_OPTIONS = ["ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"]
