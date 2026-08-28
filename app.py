@@ -546,7 +546,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 로직
+# 1. UI 인증 로직 & 새로고침 세션 유지
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -554,6 +554,15 @@ target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
 if target_lang_code != st.session_state['lang']:
     st.session_state['lang'] = target_lang_code
     st.rerun()
+
+# URL 토큰 기반 새로고침(F5) 세션 자동 복원
+if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
+    try:
+        decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
+        if not ALLOWED_DOMAIN or decoded_email.endswith(f"@{ALLOWED_DOMAIN}"):
+            st.session_state['authenticated'] = True
+            st.session_state['user_email'] = decoded_email
+    except Exception: pass
 
 try: code_param = st.query_params.get("code", None)
 except Exception: code_param = None
@@ -568,7 +577,9 @@ if code_param and not st.session_state['authenticated']:
         else:
             st.session_state['authenticated'] = True
             st.session_state['user_email'] = email
-            st.query_params.clear()
+            auth_token = base64.b64encode(email.encode('utf-8')).decode('utf-8')
+            st.query_params["auth_token"] = auth_token  # 주소창 세션 복원 토큰 부여
+            st.query_params.pop("code", None)
             st.rerun()
     except urllib.error.HTTPError as http_err:
         st.query_params.clear()
@@ -592,7 +603,8 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                # target="_top"으로 아이프레임 이탈하여 현재 탭 전체에서 구글 로그인 진행
+                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
@@ -1043,6 +1055,7 @@ if st.session_state.get('user_email'):
         st.session_state['authenticated'] = False
         st.session_state['user_email'] = ""
         st.session_state['draft_loaded_for_user'] = None
+        st.query_params.clear()  # 주소창 토큰 완전 삭제
         st.rerun()
 
 st.sidebar.markdown("""
@@ -1429,7 +1442,6 @@ if menu == "서류 파이프라인 Master":
                     supp_nm = to_name or ("자사 서류 생성" if is_outbound else "공급사 서류")
                     count = save_items_to_master(st.session_state['doc_items'], supplier_name=supp_nm, currency=curr_currency, is_outbound=is_outbound)
                     
-                    # 등록 완료 후 단발성 인풋 파일명 초기화
                     st.session_state['doc_info']['input_file_name'] = ""
                     st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → {'매출' if is_outbound else '매입'} 서류 대장 저장 (원본 매칭: {input_fn})\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
@@ -1731,7 +1743,7 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력 & 갤러리 (PDF 인풋 렌더링 지원)
+# 9. 서류 이력 & 갤러리 (인풋 PDF 미리보기 포함)
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 서류와 상대방 원본 분석 서류를 1:1 세트로 직접 비교·조회합니다.</p></div>""", unsafe_allow_html=True)
@@ -1820,7 +1832,6 @@ else:
                         file_bytes = open(file_path, "rb").read()
                         ext = file_name.split('.')[-1].lower()
                         
-                        # 이미지 및 PDF 썸네일 미리보기 지원
                         if ext in ['png', 'jpg', 'jpeg']: 
                             st.image(file_bytes, caption=file_name, use_container_width=True)
                         elif ext == 'pdf':
@@ -1830,7 +1841,7 @@ else:
                                 
                         st.download_button("💾 파일 다운로드", file_bytes, file_name=file_name, key=f"dl_in_{idx}")
         else: st.info("AI 문서 분석에 업로드된 인풋 문서가 없습니다.")
-            
+
 if is_running:
     time.sleep(1.0)
     st.rerun()
