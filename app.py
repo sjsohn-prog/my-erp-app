@@ -206,35 +206,83 @@ def safe_save_csv(df, filepath, default_cols=None):
         except Exception as e:
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
+# 🎯 직접 입력이 디폴트이며 옵션 선택도 가능한 통합 입력 컴포넌트
 def render_unified_input(label, current_val, base_options, key_prefix):
-    display_label = f"▾ {label}" if not label.startswith("▾") else label
+    txt_key = f"{key_prefix}_txt"
+    sel_key = f"{key_prefix}_sel"
+
     curr = clean_str(current_val)
-    direct_label = "✏️ 직접 입력 / Direct Input"
-    
-    options = [""]
-    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
-        options.append(curr)
-        
+    if txt_key not in st.session_state:
+        st.session_state[txt_key] = curr
+
+    opts = ["-- 선택 / Select --"]
     for item in base_options:
         s_item = clean_str(item)
-        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
-            options.append(s_item)
-            
-    options.append(direct_label)
-    
-    sel_key = f"{key_prefix}_sel"
-    txt_key = f"{key_prefix}_txt"
-    
-    if sel_key not in st.session_state:
-        st.session_state[sel_key] = curr if curr in options else ""
-    elif st.session_state[sel_key] not in options:
-        options.insert(1, st.session_state[sel_key])
+        if s_item and s_item not in opts:
+            opts.append(s_item)
 
-    selected = st.selectbox(display_label, options=options, key=sel_key)
-    if selected == direct_label:
-        return st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
+    if len(opts) > 1:
+        col_txt, col_sel = st.columns([3, 2])
+        with col_sel:
+            def on_select_change():
+                selected = st.session_state.get(sel_key)
+                if selected and selected != "-- 선택 / Select --":
+                    st.session_state[txt_key] = selected
+
+            st.selectbox(f"▾ {label}", options=opts, key=sel_key, on_change=on_select_change)
+        with col_txt:
+            res_val = st.text_input(label, key=txt_key)
     else:
-        return selected
+        res_val = st.text_input(label, key=txt_key)
+
+    return res_val
+
+# 🎯 날짜 자동 포맷팅 (260828 -> 2026-08-28) 및 캘린더 피커 조합 컴포넌트
+def parse_and_format_date(val_str):
+    if not val_str:
+        return get_kst_now().strftime("%Y-%m-%d")
+    s = re.sub(r"[^\d]", "", str(val_str).strip())
+    if len(s) == 6:  # 260828 -> 2026-08-28
+        yy, mm, dd = s[:2], s[2:4], s[4:6]
+        return f"20{yy}-{mm}-{dd}"
+    elif len(s) == 8:  # 20260828 -> 2026-08-28
+        yyyy, mm, dd = s[:4], s[4:6], s[6:8]
+        return f"{yyyy}-{mm}-{dd}"
+    try:
+        dt = pd.to_datetime(val_str)
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return str(val_str)
+
+def render_date_input(label, current_val, key_prefix):
+    txt_key = f"{key_prefix}_date_txt"
+    picker_key = f"{key_prefix}_date_picker"
+
+    formatted_default = parse_and_format_date(current_val)
+
+    if txt_key not in st.session_state:
+        st.session_state[txt_key] = formatted_default
+
+    col_txt, col_cal = st.columns([3, 1])
+
+    with col_cal:
+        def on_picker_change():
+            p_val = st.session_state.get(picker_key)
+            if p_val:
+                st.session_state[txt_key] = p_val.strftime("%Y-%m-%d")
+
+        try:
+            init_date = pd.to_datetime(st.session_state[txt_key]).date()
+        except Exception:
+            init_date = get_kst_now().date()
+
+        st.date_input(f"📅 {label}", value=init_date, key=picker_key, on_change=on_picker_change)
+
+    with col_txt:
+        raw_txt = st.text_input(label, key=txt_key)
+        cleaned_date = parse_and_format_date(raw_txt)
+
+    return cleaned_date
 
 # ==========================================
 # 0-2. i18n 다국어 사전
@@ -504,9 +552,12 @@ if target_lang_code != st.session_state['lang']:
     st.session_state['lang'] = target_lang_code
     st.rerun()
 
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
-    st.session_state['user_email'] = ""
+# 🎯 새로고침 시 로그인 유지 로직 (Query Parameter 기반)
+if not st.session_state.get('authenticated'):
+    qp_user = st.query_params.get("auth_user", None)
+    if qp_user:
+        st.session_state['authenticated'] = True
+        st.session_state['user_email'] = qp_user
 
 if 'processed_code' not in st.session_state:
     st.session_state['processed_code'] = None
@@ -514,9 +565,9 @@ if 'processed_code' not in st.session_state:
 try: code_param = st.query_params.get("code", None)
 except Exception: code_param = None
 
-if code_param and not st.session_state['authenticated']:
+if code_param and not st.session_state.get('authenticated'):
     if st.session_state['processed_code'] == code_param:
-        st.query_params.clear()
+        pass
     else:
         st.session_state['processed_code'] = code_param
         try:
@@ -528,13 +579,13 @@ if code_param and not st.session_state['authenticated']:
             else:
                 st.session_state['authenticated'] = True
                 st.session_state['user_email'] = email
-                st.query_params.clear()
+                st.query_params["auth_user"] = email  # 새로고침 시 로그인 유지용 파라미터 저장
                 st.rerun()
         except Exception as e:
             st.query_params.clear()
             st.error(f"Google Auth Error: {e}")
 
-if not st.session_state['authenticated']:
+if not st.session_state.get('authenticated'):
     st.write("")
     st.write("")
     st.write("")
@@ -1078,6 +1129,7 @@ if st.session_state.get('user_email'):
     if st.sidebar.button(t("logout")):
         st.session_state['authenticated'] = False
         st.session_state['user_email'] = ""
+        st.query_params.clear()  # 로그아웃 시 Query Parameter 파기
         st.rerun()
 
 # 🎯 Powered by Gemini 3.6 배너 & 실시간 환율 카드 통합 코드
@@ -1222,24 +1274,26 @@ if menu == "서류 분석 / 생성 Master":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        def set_widget_val(prefix, val):
-            st.session_state[f"{prefix}_sel"] = val
-            st.session_state[f"{prefix}_txt"] = val
-
-        set_widget_val('to', to_field_val); set_widget_val('attn', attn_field_val)
-        set_widget_val('project_title', project_val); set_widget_val('our_ref', our_ref_val)
-        set_widget_val('your_ref', your_ref_val); set_widget_val('date', date_val)
-        set_widget_val('validity', validity_val); set_widget_val('payment_due', payment_due_val)
-        set_widget_val('pic', pic_field_val); set_widget_val('ship', ship_val)
+        st.session_state['to_txt'] = to_field_val
+        st.session_state['attn_txt'] = attn_field_val
+        st.session_state['project_title_txt'] = project_val
+        st.session_state['our_ref_txt'] = our_ref_val
+        st.session_state['your_ref_txt'] = your_ref_val
+        st.session_state['date_date_txt'] = date_val
+        st.session_state['validity_txt'] = validity_val
+        st.session_state['payment_due_txt'] = payment_due_val
+        st.session_state['pic_txt'] = pic_field_val
+        st.session_state['ship_txt'] = ship_val
 
         if "/" in flag_class_val:
             fc_parts = flag_class_val.split("/", 1)
-            set_widget_val('flag', fc_parts[0].strip())
-            set_widget_val('class', fc_parts[1].strip())
+            st.session_state['flag_txt'] = fc_parts[0].strip()
+            st.session_state['class_txt'] = fc_parts[1].strip()
         else:
-            set_widget_val('flag', flag_class_val); set_widget_val('class', '')
+            st.session_state['flag_txt'] = flag_class_val
+            st.session_state['class_txt'] = ''
 
-        set_widget_val('currency', currency_val)
+        st.session_state['currency_txt'] = currency_val
         st.session_state['last_currency'] = currency_val
         
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
@@ -1287,6 +1341,9 @@ if menu == "서류 분석 / 생성 Master":
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
+            for k in list(st.session_state.keys()):
+                if k.endswith('_txt') or k.endswith('_sel') or k.endswith('_date_txt'):
+                    del st.session_state[k]
             if 'parsed_input_doc' in st.session_state: del st.session_state['parsed_input_doc']
             st.rerun()
 
@@ -1311,7 +1368,7 @@ if menu == "서류 분석 / 생성 Master":
             with col_hdr_r:
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
-                date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [get_kst_now().strftime("%Y-%m-%d")], "date")
+                date_str = render_date_input("Date", st.session_state['doc_info'].get("date", get_kst_now().strftime("%Y-%m-%d")), "date")
                 our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance"], "payment_due")
