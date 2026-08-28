@@ -10,6 +10,7 @@ import io
 import threading
 import urllib.parse
 import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, timezone
 import google.generativeai as genai
 from PIL import Image
@@ -57,7 +58,6 @@ def load_saved_key():
         with open(KEY_FILE, "r", encoding="utf-8") as f: return f.read().strip()
     return ""
 
-# 함수 선언 후 안전하게 변수 초기화
 gemini_key = load_saved_key()
 
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "admin0915")
@@ -251,10 +251,9 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-2. 세션 콜백 및 안전 스마트 위젯 (에러 완전 차단)
+# 0-2. 세션 콜백 및 안전 스마트 위젯
 # ==========================================
 def set_session_val(key, val):
-    """위젯 렌더링 전 세션 값을 안전하게 변경하는 콜백 함수"""
     st.session_state[key] = val
 
 def render_unified_input(label, current_val, base_options, key_prefix):
@@ -325,7 +324,7 @@ def render_date_input(label, current_val, key_prefix):
     return st.session_state.get(txt_key, "")
 
 # ==========================================
-# 0-3. 계정별 임시저장(Draft) 및 세션 복원
+# 0-3. 계정별 임시저장(Draft) 전용 제어 함수
 # ==========================================
 def load_user_draft(user_email):
     if not user_email or not os.path.exists(DRAFTS_FILE): return None
@@ -547,31 +546,30 @@ if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
     st.session_state['user_email'] = ""
 
-if 'processed_code' not in st.session_state:
-    st.session_state['processed_code'] = None
-
 try: code_param = st.query_params.get("code", None)
 except Exception: code_param = None
 
 if code_param and not st.session_state['authenticated']:
-    if st.session_state['processed_code'] == code_param:
-        st.query_params.clear()
-    else:
-        st.session_state['processed_code'] = code_param
-        try:
-            user_info = get_google_user_info(code_param)
-            email = user_info.get("email", "")
-            if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
-                st.error(f"❌ Access Denied: Only @{ALLOWED_DOMAIN} accounts are allowed. (Attempted: {email})")
-                st.query_params.clear()
-            else:
-                st.session_state['authenticated'] = True
-                st.session_state['user_email'] = email
-                st.query_params.clear()
-                st.rerun()
-        except Exception as e:
+    try:
+        user_info = get_google_user_info(code_param)
+        email = user_info.get("email", "")
+        if ALLOWED_DOMAIN and not email.endswith(f"@{ALLOWED_DOMAIN}") and email != "":
+            st.error(f"❌ Access Denied: Only @{ALLOWED_DOMAIN} accounts are allowed. (Attempted: {email})")
             st.query_params.clear()
-            st.error(f"Google Auth Error: {e}")
+        else:
+            st.session_state['authenticated'] = True
+            st.session_state['user_email'] = email
+            st.query_params.clear()
+            st.rerun()
+    except urllib.error.HTTPError as http_err:
+        st.query_params.clear()
+        if http_err.code == 400:
+            st.toast("ℹ️ 구글 인증 코드가 만료되었습니다. 다시 로그인 버튼을 눌러주세요.", icon="🔑")
+        else:
+            st.error(f"Google Auth HTTP Error: {http_err}")
+    except Exception:
+        st.query_params.clear()
+        st.toast("ℹ️ 세션이 재설정되었습니다. 로그인해 주세요.", icon="🔑")
 
 if not st.session_state['authenticated']:
     st.write("")
@@ -590,311 +588,28 @@ if not st.session_state['authenticated']:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
 
-# ==========================================
-# 2. 내장형 PDF HTML 템플릿
-# ==========================================
-INLINE_HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-    @page { 
-        size: A4; margin-top: 32mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
-        @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
-    }
-    body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
-    div.header-repeat { position: fixed; top: -25mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 4px; }
-    .header-table { width: 100%; border-collapse: collapse; border: none !important; margin: 0 !important; }
-    .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
-    .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
-    table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
-    table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
-    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; }
-    table.data-table thead { display: table-header-group; }
-    table.data-table tbody { display: table-row-group; }
-    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
-    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 3px 5px; vertical-align: middle; }
-    .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
-    .hdr-value { width: 34%; font-size: 8.5pt; }
-    .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
-    .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
-    .col-no { width: 5%; text-align: center; }
-    .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
-    .col-qty { width: 8%; text-align: center; }
-    .col-price { width: 16%; text-align: right !important; }
-    .col-amt { width: 16%; text-align: right !important; }
-    .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
-</style>
-</head>
-<body>
-    <div class="header-repeat">
-        <table class="header-table">
-            <tr>
-                <td style="text-align: left; width: 50%; vertical-align: bottom;">
-                    {% if logo_base64 %}
-                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 58px;" />
-                    {% else %}
-                    <span style="font-size: 18pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
-                    {% endif %}
-                </td>
-                <td style="text-align: right; width: 50%; vertical-align: bottom;">
-                    <div class="doc-title-text">{{ doc_title }}</div>
-                </td>
-            </tr>
-        </table>
-        
-        <div style="text-align: center; margin-top: 6px; font-size: 7.5pt; font-style: italic; line-height: 1.25; color: #000;">
-            Address: Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733, Republic of Korea<br>
-            TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr, tech@1solution.co.kr
-        </div>
-    </div>
-
-    <table class="hdr-table">
-        <tr>
-            <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
-            <td class="hdr-label">PIC</td><td class="hdr-value">{{ pic }}</td>
-        </tr>
-        <tr>
-            <td class="hdr-label">Attention</td><td class="hdr-value">{{ attn_name }}</td>
-            <td class="hdr-label">Date</td><td class="hdr-value">{{ date_str }}</td>
-        </tr>
-        <tr>
-            <td class="hdr-label">Your Ref. No.</td><td class="hdr-value">{{ your_ref }}</td>
-            <td class="hdr-label">Our Ref. No.</td><td class="hdr-value">{{ our_ref }}</td>
-        </tr>
-        <tr>
-            <td class="hdr-label">Ship's Name</td><td class="hdr-value">{{ ship_name }}</td>
-            <td class="hdr-label">Validity</td><td class="hdr-value">{{ validity }}</td>
-        </tr>
-        <tr>
-            <td class="hdr-label">Flag / Class</td><td class="hdr-value">{{ flag_class }}</td>
-            <td class="hdr-label">Payment Due</td><td class="hdr-value">{{ payment_due }}</td>
-        </tr>
-        <tr>
-            <td class="hdr-label">Project Title</td><td class="hdr-value" colspan="3">{{ project_title }}</td>
-        </tr>
-    </table>
-
-    <div class="currency">Currency: {{ currency }}</div>
-    
-    <table class="data-table">
-        <thead>
-            <tr>
-                <td class="item-th col-no">No.</td>
-                <td class="item-th col-desc">Description (Item Name / Part No. / Model)</td>
-                <td class="item-th col-qty">Q'ty</td>
-                <td class="item-th col-price" style="text-align: right;">Unit Price</td>
-                <td class="item-th col-amt" style="text-align: right;">Amount</td>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in items %}
-            <tr>
-                <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc">
-                    {% if item.ItemName %}
-                        <strong>{{ item.ItemName }}</strong>{% if item.PartNo %} ({{ item.PartNo }}){% endif %}<br>
-                    {% elif item.PartNo %}
-                        <strong>Part No: {{ item.PartNo }}</strong><br>
-                    {% endif %}
-                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}
-                    {% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>[Deviations/Note: {{ item.Remarks | replace('\n', '<br>') }}]</em></span>{% endif %}
-                </td>
-                <td class="col-qty">{{ item.Qty }}</td>
-                <td class="col-price" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
-                <td class="col-amt" style="text-align: right;">{{ item.AmountFormatted }}</td>
-            </tr>
-            {% endfor %}
-            {% if bottom_remarks %}
-            <tr>
-                <td colspan="5" style="border: 0.9px solid #000; padding: 4px 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
-                    <strong><em>[Remarks & Deviations]</em></strong><br>{{ bottom_remarks | replace('\n', '<br>') }}
-                </td>
-            </tr>
-            {% endif %}
-            {% if total_amount_str %}
-            <tr>
-                <td colspan="3" class="total-row-td" style="border-right: none;"></td>
-                <td class="total-row-td" style="text-align: center; background-color: #f4f4f4; border-left: 0.9px solid #000;">Total Amount</td>
-                <td class="total-row-td" style="text-align: right; font-size: 11pt; font-weight: bold;">{{ total_amount_str }}</td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
-
-    {% if vat_note %}
-    <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 2px;">{{ vat_note }}</div>
-    {% endif %}
-</body>
-</html>
-"""
-
-# ==========================================
-# 3. 환경 및 데이터 정제 필수 도구
-# ==========================================
-def recalculate_items_df(df, currency="KRW"):
-    if df is None or df.empty: return df
-    df = df.copy()
-    sym = get_currency_symbol(currency)
-    
-    cols_order = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
-    for c in cols_order:
-        if c not in df.columns: df[c] = ""
-        
-    df = df[cols_order]
-
-    for idx in df.index:
-        qty = safe_float(df.at[idx, 'Qty'])
-        u_price = safe_float(df.at[idx, 'UnitPrice'])
-        curr_amt = safe_float(df.at[idx, 'Amount'])
-
-        if qty > 0 and u_price >= 0:
-            calc_amt = qty * u_price
-            fmt_amt = f"{calc_amt:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_amt:,.2f}"
-            df.at[idx, 'Amount'] = f"{sym}{fmt_amt}" if sym else fmt_amt
-            
-            fmt_up = f"{u_price:,.0f}" if currency in ["KRW", "JPY"] else f"{u_price:,.2f}"
-            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
-        elif qty > 0 and curr_amt > 0 and u_price == 0:
-            calc_up = curr_amt / qty
-            fmt_up = f"{calc_up:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_up:,.2f}"
-            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
-
-    return df
-
-def prepare_items_for_pdf(items_list, currency="KRW"):
-    sym = get_currency_symbol(currency)
-    formatted_items = []
-    
-    valid_items = []
-    for item in items_list:
-        iname, desc, pno = clean_str(item.get('ItemName', '')), clean_str(item.get('Description', '')), clean_str(item.get('PartNo', ''))
-        qty_raw, u_p_val, amt_val, rem = clean_str(item.get('Qty', '')), safe_float(item.get('UnitPrice', 0)), safe_float(item.get('Amount', 0)), clean_str(item.get('Remarks', ''))
-        if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
-            valid_items.append(item)
-
-    for item in valid_items:
-        item_copy = dict(item)
-        item_copy['ItemName'] = clean_str(item_copy.get('ItemName', ''))
-        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', ''))
-        item_copy['Description'] = clean_str(item_copy.get('Description', ''))
-        item_copy['Remarks'] = clean_str(item_copy.get('Remarks', ''))
-        
-        qty_raw = item_copy.get('Qty', '')
-        q_val = safe_float(qty_raw, default=None)
-        item_copy['Qty'] = f"{int(q_val)}" if q_val is not None and q_val == int(q_val) else str(qty_raw or '')
-
-        u_p_val = safe_float(item_copy.get('UnitPrice', 0))
-        amt_val = safe_float(item_copy.get('Amount', 0))
-            
-        fmt_up = f"{u_p_val:,.0f}" if currency in ["KRW", "JPY"] else f"{u_p_val:,.2f}"
-        fmt_amt = f"{amt_val:,.0f}" if currency in ["KRW", "JPY"] else f"{amt_val:,.2f}"
-
-        item_copy['UnitPriceFormatted'] = f"{sym}{fmt_up}" if u_p_val > 0 else ""
-        item_copy['AmountFormatted'] = f"{sym}{fmt_amt}" if amt_val > 0 else ("" if amt_val == 0 and u_p_val == 0 else f"{sym}0")
-        formatted_items.append(item_copy)
-    return formatted_items
-
-if 'bg_task' not in st.session_state:
-    st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
-
-is_running = (st.session_state['bg_task']['status'] == 'running')
-
-def _sync_local_cache(df, filepath, default_cols):
-    cleaned_df = ensure_cols(clean_df(df), default_cols)
-    with file_access_lock:
-        cleaned_df.to_csv(filepath, index=False)
-
-our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
-_sync_local_cache(our_db_init, OUR_DB_FILE, doc_db_cols)
-
-customer_db_init = ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols)
-_sync_local_cache(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
-
-item_master_init = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
-_sync_local_cache(item_master_init, ITEM_MASTER_FILE, item_master_cols)
-
-partner_db_init = ensure_cols(safe_read_csv(PARTNER_DB_FILE, partner_db_cols), partner_db_cols)
-_sync_local_cache(partner_db_init, PARTNER_DB_FILE, partner_db_cols)
-
-vessel_db_init = ensure_cols(safe_read_csv(VESSEL_DB_FILE, vessel_db_cols), vessel_db_cols)
-_sync_local_cache(vessel_db_init, VESSEL_DB_FILE, vessel_db_cols)
-
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f: return json.load(f)
-    return {"ships": [], "to_list": [], "attns": []}
-
-def save_history(ship, to, attn):
-    data = load_history()
-    updated = False
-    for key, val in [("ships", ship), ("to_list", to), ("attns", attn)]:
-        if val and val.strip() and val not in data[key]:
-            data[key].append(val.strip())
-            updated = True
-    if updated:
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
-    df = ensure_cols(safe_read_csv(target_db_file, doc_db_cols), doc_db_cols)
-    issue_date_str = get_kst_now().strftime("%Y-%m-%d %H:%M")
-    logged_user = user_email or st.session_state.get('user_email', 'Unknown')
-    default_status = "🔵 PO Received" if doc_type == "Purchase Order" else ("🟣 Invoiced" if doc_type == "Invoice" else "🟡 Quoted")
-
-    new_entry = pd.DataFrame([{
-        "IssueDate": issue_date_str, "DocDate": doc_date_str or "-", "DocType": doc_type,
-        "OurRef": our_ref or "-", "YourRef": your_ref or "-", "ShipName": ship_name or "-",
-        "TargetName": target_name or "-", "Currency": currency or "-", "TotalAmount": total_amount,
-        "ItemCount": item_count, "CreatedBy": logged_user, "Status": default_status
-    }])
-
-    safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
-
-def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW"):
-    if items_df is None or items_df.empty: return 0
-    master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
-    
-    new_rows = []
-    for _, row in items_df.iterrows():
-        pno, iname, desc, u_price, rem = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', '')), safe_float(row.get('UnitPrice', 0)), clean_str(row.get('Remarks', ''))
-        if pno or iname or desc:
-            new_rows.append({"ItemName": iname, "PartNo": pno, "Description": desc, "Supplier": supplier_name, "BuyPrice": 0.0, "ListPrice": u_price, "Currency": currency, "Remarks": rem})
-            
-    if new_rows:
-        safe_save_csv(pd.concat([master_df, pd.DataFrame(new_rows)], ignore_index=True), ITEM_MASTER_FILE, item_master_cols)
-        return len(new_rows)
-    return 0
-
-def safe_merge_db(existing_db, new_data_df, cols):
-    if new_data_df is None or new_data_df.empty: return existing_db
-    return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
-
+# 🎯 [로그인 성공 직후 계정별 임시저장(Draft) 자동 복원 실행]
 user_email_key = st.session_state.get('user_email', '')
-user_draft = load_user_draft(user_email_key) if user_email_key else None
+if user_email_key and st.session_state.get('draft_loaded_for_user') != user_email_key:
+    user_draft = load_user_draft(user_email_key)
+    if user_draft:
+        if "doc_info" in user_draft: st.session_state['doc_info'] = user_draft["doc_info"]
+        if "doc_items" in user_draft: st.session_state['doc_items'] = pd.DataFrame(user_draft["doc_items"])
+        if "visible_cols" in user_draft: st.session_state['visible_cols'] = user_draft["visible_cols"]
+        st.toast(f"🎉 '{user_email_key}' 계정의 마지막 작성 내역이 복원되었습니다.", icon="💾")
+    st.session_state['draft_loaded_for_user'] = user_email_key
 
 if 'doc_info' not in st.session_state:
-    if user_draft and "doc_info" in user_draft:
-        st.session_state['doc_info'] = user_draft["doc_info"]
-    else:
-        st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
 if 'doc_items' not in st.session_state:
-    if user_draft and "doc_items" in user_draft:
-        st.session_state['doc_items'] = pd.DataFrame(user_draft["doc_items"])
-    else:
-        st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+    st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
 
 if 'visible_cols' not in st.session_state:
-    if user_draft and "visible_cols" in user_draft:
-        st.session_state['visible_cols'] = user_draft["visible_cols"]
-    else:
-        st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+    st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 4. AI 파싱 엔진 (Gemini 3.6 전용 지정)
+# 4. AI 파싱 엔진
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip(): 
@@ -1164,6 +879,7 @@ if st.session_state.get('user_email'):
     if st.sidebar.button(t("logout")):
         st.session_state['authenticated'] = False
         st.session_state['user_email'] = ""
+        st.session_state['draft_loaded_for_user'] = None
         st.rerun()
 
 st.sidebar.markdown("""
@@ -1242,6 +958,10 @@ if menu == "서류 파이프라인 Master":
     doc_type = st.sidebar.selectbox("📋 서류 유형 선택", doc_type_opts)
     
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} - {pipeline_dir.split()[1]} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
+
+    # 🎯 [시각적 자동 임시저장 상태 안내 바]
+    curr_user_mail = st.session_state.get('user_email', 'Unknown')
+    st.caption(f"💾 **실시간 자동 임시저장 활성화** (계정: `{curr_user_mail}` | 페이지 재접속/로그인 시 100% 자동으로 이전 작성 내역 복원)")
 
     our_ledger, cust_ledger, history = safe_read_csv(OUR_DB_FILE, doc_db_cols), safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), load_history()
     partner_df = safe_read_csv(PARTNER_DB_FILE, partner_db_cols)
@@ -1570,7 +1290,10 @@ if menu == "서류 파이프라인 Master":
             }
             try:
                 realtime_pdf_bytes = generate_pdf(preview_ctx)
-                file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
+                
+                # 🎯 [매입 서류 미리보기 파일명 특수문자 정제 - Errno 2 완전 차단]
+                safe_doc_filename = re.sub(r'[\\/*?:"<>|]', '_', clean_str(doc_type))
+                file_n = f"{safe_doc_filename}_{our_ref or your_ref or 'Draft'}.pdf"
                 
                 with open(os.path.join("output", file_n), "wb") as f: f.write(realtime_pdf_bytes)
                 st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
