@@ -161,7 +161,7 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'draft_loaded_for_user' not in st.session_state: st.session_state['draft_loaded_for_user'] = None
 if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
 
-# [F5 새로고침 복원] 스크립트 실행 직후 URL 토큰 검증하여 자동 로그인 100% 복원
+# [F5 새로고침 복원] 최상단에서 URL 토큰 읽어 자동 로그인 세션 유지
 if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
     try:
         decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
@@ -549,13 +549,15 @@ def get_google_user_info(code):
     with urllib.request.urlopen(req) as response:
         token_data = json.loads(response.read().decode('utf-8'))
     access_token = token_data.get("access_token")
+    if not access_token:
+        raise ValueError(f"Failed to obtain access token: {token_data}")
     userinfo_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={access_token}"
     req_user = urllib.request.Request(userinfo_url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req_user) as response_user:
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 로직
+# 1. UI 인증 로직 (예외 명확화 및 URL 토큰 완벽 연동)
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -578,18 +580,15 @@ if code_param and not st.session_state['authenticated']:
             st.session_state['authenticated'] = True
             st.session_state['user_email'] = email
             auth_token = base64.b64encode(email.encode('utf-8')).decode('utf-8')
+            st.query_params.clear()
             st.query_params["auth_token"] = auth_token
-            st.query_params.pop("code", None)
             st.rerun()
     except urllib.error.HTTPError as http_err:
+        st.error(f"❌ Google Auth HTTP Error ({http_err.code}): {http_err.reason}. secrets의 REDIRECT_URI와 Google Console의 리디렉션 URI가 완벽히 일치하는지 확인해주세요.")
         st.query_params.clear()
-        if http_err.code == 400:
-            st.toast("ℹ️ 구글 인증 코드가 만료되었습니다. 다시 로그인 버튼을 눌러주세요.", icon="🔑")
-        else:
-            st.error(f"Google Auth HTTP Error: {http_err}")
-    except Exception:
+    except Exception as err:
+        st.error(f"❌ Google OAuth 인증 처리 실패: {err}")
         st.query_params.clear()
-        st.toast("ℹ️ 세션이 재설정되었습니다. 로그인해 주세요.", icon="🔑")
 
 if not st.session_state['authenticated']:
     st.write("")
@@ -603,7 +602,7 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # target="_top"을 사용하여 팝업/새 탭 없이 현재 창에서 바로 로그인 이동
+                # target="_top"으로 아이프레임 우회하여 브라우저 창 전환
                 st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
