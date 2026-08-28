@@ -177,7 +177,7 @@ def safe_read_csv(filepath, default_cols=None):
             sh = gc.open_by_key(spreadsheet_key)
             ws = sh.worksheet(sheet_title)
             data = ws.get_all_records()
-            if data: return ensure_cols(pd.DataFrame(data), default_cols)
+            if isinstance(data, list): return ensure_cols(pd.DataFrame(data), default_cols)
         except Exception: pass
 
     if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
@@ -1752,7 +1752,9 @@ elif menu == "관리자 메뉴":
             with col2:
                 if st.button("🚨 자사 서류 대장 전체 초기화", key="btn_admin_reset_our"):
                     safe_save_csv(pd.DataFrame(columns=doc_db_cols), OUR_DB_FILE, doc_db_cols)
-                    st.success("🚨 자사 서류 대장이 초기화되었습니다.")
+                    if "admin_our_editor" in st.session_state: del st.session_state["admin_our_editor"]
+                    if "our_doc_editor" in st.session_state: del st.session_state["our_doc_editor"]
+                    st.success("🚨 자사 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
                     st.rerun()
 
         with admin_tab2:
@@ -1768,7 +1770,9 @@ elif menu == "관리자 메뉴":
             with col2:
                 if st.button("🚨 고객사 서류 대장 전체 초기화", key="btn_admin_reset_cust"):
                     safe_save_csv(pd.DataFrame(columns=doc_db_cols), CUSTOMER_DB_FILE, doc_db_cols)
-                    st.success("🚨 고객사 서류 대장이 초기화되었습니다.")
+                    if "admin_cust_editor" in st.session_state: del st.session_state["admin_cust_editor"]
+                    if "cust_doc_editor" in st.session_state: del st.session_state["cust_doc_editor"]
+                    st.success("🚨 고객사 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
                     st.rerun()
 
         with admin_tab3:
@@ -1784,7 +1788,9 @@ elif menu == "관리자 메뉴":
             with col2:
                 if st.button("🚨 자재 마스터 DB 전체 초기화", key="btn_admin_reset_item"):
                     safe_save_csv(pd.DataFrame(columns=item_master_cols), ITEM_MASTER_FILE, item_master_cols)
-                    st.success("🚨 자재 마스터 DB가 초기화되었습니다.")
+                    if "admin_item_editor" in st.session_state: del st.session_state["admin_item_editor"]
+                    if "item_master_editor" in st.session_state: del st.session_state["item_master_editor"]
+                    st.success("🚨 자재 마스터 DB 및 구글 시트가 완전 초기화되었습니다.")
                     st.rerun()
 
         with admin_tab4:
