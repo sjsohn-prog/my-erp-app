@@ -259,37 +259,42 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-3. 개선된 스마트 인풋 & 스마트 날짜 위젯 (요구사항 1, 2 반영)
+# 0-3. 단일 깔끔 인풋 & 달력 통합 위젯 (이중 중복 UI 수정)
 # ==========================================
 def render_unified_input(label, current_val, base_options, key_prefix):
     """
-    [요구사항 1 반영] 기본이 직접 입력(빈칸/입력값)이며, 클릭/선택 시 추천 옵션으로 자동 채워지는 스마트 위젯
+    [이중 배치 완전 해결] 
+    직접 입력 단일 텍스트 상자 + 우측 팝오버(📋) 추천 버튼으로 깔끔하게 구성
     """
-    display_label = f"▾ {label}" if not label.startswith("▾") else label
     txt_key = f"{key_prefix}_txt"
-    sel_key = f"{key_prefix}_sel"
-
     curr = clean_str(current_val)
+
     if txt_key not in st.session_state:
         st.session_state[txt_key] = curr
 
-    opts = ["(추천/이력 항목 선택)"] + [clean_str(x) for x in base_options if clean_str(x)]
+    opts = [clean_str(x) for x in base_options if clean_str(x)]
     opts = list(dict.fromkeys(opts))
 
-    col_txt, col_opt = st.columns([0.68, 0.32])
-    with col_opt:
-        selected_opt = st.selectbox(f"{label} 옵션", options=opts, key=sel_key, label_visibility="collapsed")
-        if selected_opt and selected_opt != "(추천/이력 항목 선택)":
-            st.session_state[txt_key] = selected_opt
-
-    with col_txt:
-        val = st.text_input(display_label, key=txt_key, label_visibility="visible")
+    if opts:
+        col_in, col_pop = st.columns([0.88, 0.12])
+        with col_in:
+            val = st.text_input(f"▾ {label}", key=txt_key)
+        with col_pop:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            with st.popover("📋", help=f"{label} 추천/이력 선택"):
+                st.caption(f"**{label} 추천 목록**")
+                for idx, opt in enumerate(opts):
+                    if st.button(opt, key=f"{key_prefix}_pop_{idx}_{opt[:10]}"):
+                        st.session_state[txt_key] = opt
+                        st.rerun()
+    else:
+        val = st.text_input(f"▾ {label}", key=txt_key)
 
     return val
 
 def format_date_str(raw_str):
     """
-    [요구사항 2 반영] 260828 -> 2026-08-28 또는 20260828 -> 2026-08-28 자동 포맷팅
+    260828 -> 2026-08-28 또는 20260828 -> 2026-08-28 자동 포맷팅
     """
     s = re.sub(r'[^0-9]', '', str(raw_str))
     if len(s) == 6:
@@ -300,34 +305,35 @@ def format_date_str(raw_str):
 
 def render_date_input(label, current_val, key_prefix):
     """
-    [요구사항 2 반영] 캘린더 달력 피커와 빠른 텍스트 포맷팅(260828 -> 2026-08-28)이 결합된 날짜 위젯
+    [이중 배치 완전 해결] 
+    260828 입력 시 2026-08-28 포맷팅되는 텍스트 상자 + 우측 팝오버 미니 달력(📅)
     """
-    display_label = f"📅 {label}"
-    txt_key = f"{key_prefix}_date_txt"
-    picker_key = f"{key_prefix}_date_picker"
-
-    curr_formatted = format_date_str(clean_str(current_val))
+    txt_key = f"{key_prefix}_date_str"
+    
     if txt_key not in st.session_state or not st.session_state[txt_key]:
-        st.session_state[txt_key] = curr_formatted or get_kst_now().strftime("%Y-%m-%d")
+        raw_c = clean_str(current_val) or get_kst_now().strftime("%Y-%m-%d")
+        st.session_state[txt_key] = format_date_str(raw_c)
 
-    col_txt, col_picker = st.columns([0.7, 0.3])
-    with col_picker:
-        try:
-            cur_d = datetime.strptime(st.session_state[txt_key], "%Y-%m-%d").date()
-        except Exception:
-            cur_d = get_kst_now().date()
-            
-        picked = st.date_input("달력선택", value=cur_d, key=picker_key, label_visibility="collapsed")
-        if picked:
-            picked_str = picked.strftime("%Y-%m-%d")
-            if picked_str != st.session_state[txt_key]:
-                st.session_state[txt_key] = picked_str
+    col_in, col_pop = st.columns([0.88, 0.12])
+    with col_in:
+        user_val = st.text_input(f"📅 {label}", key=txt_key)
+        formatted_val = format_date_str(user_val)
+        if formatted_val != user_val:
+            st.session_state[txt_key] = formatted_val
 
-    with col_txt:
-        user_in = st.text_input(display_label, key=txt_key)
-        formatted_in = format_date_str(user_in)
-        if formatted_in != user_in:
-            st.session_state[txt_key] = formatted_in
+    with col_pop:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        with st.popover("📅", help=f"{label} 달력에서 선택"):
+            try:
+                init_d = datetime.strptime(st.session_state[txt_key], "%Y-%m-%d").date()
+            except Exception:
+                init_d = get_kst_now().date()
+            picked = st.date_input("날짜 선택", value=init_d, key=f"{key_prefix}_dp")
+            if picked:
+                picked_str = picked.strftime("%Y-%m-%d")
+                if picked_str != st.session_state[txt_key]:
+                    st.session_state[txt_key] = picked_str
+                    st.rerun()
 
     return st.session_state[txt_key]
 
@@ -646,7 +652,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 ([요구사항 10] Item Name (Part No) 헤더 표시 반영)
+# 2. 내장형 PDF HTML 템플릿 ([Item Name (Part No)] 헤더 반영)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -796,13 +802,11 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# [요구사항 9 반영] Amount 및 UnitPrice 정밀 실시간 자동 재계산 함수
 def recalculate_items_df(df, currency="KRW"):
     if df is None or df.empty: return df
     df = df.copy()
     sym = get_currency_symbol(currency)
     
-    # [요구사항 10 반영] 순서: ItemName -> PartNo
     cols_order = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
     for c in cols_order:
         if c not in df.columns: df[c] = ""
@@ -941,7 +945,6 @@ def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
 
-# [요구사항 8 반영] 계정별 임시 저장 데이터 자동 복원
 user_email_key = st.session_state.get('user_email', '')
 user_draft = load_user_draft(user_email_key) if user_email_key else None
 
@@ -964,7 +967,7 @@ if 'visible_cols' not in st.session_state:
         st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 4. AI 파싱 엔진 (Gemini 3.6 전용 유지)
+# 4. AI 파싱 엔진 (Gemini 3.6 전용 유효)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip(): 
@@ -1378,7 +1381,7 @@ if menu == "서류 분석 / 생성 Master":
         st.session_state['project_title_txt'] = project_val
         st.session_state['our_ref_txt'] = our_ref_val
         st.session_state['your_ref_txt'] = your_ref_val
-        st.session_state['date_date_txt'] = date_val
+        st.session_state['date_date_str'] = date_val
         st.session_state['validity_txt'] = validity_val
         st.session_state['payment_due_txt'] = payment_due_val
         st.session_state['pic_txt'] = pic_field_val
@@ -1465,7 +1468,6 @@ if menu == "서류 분석 / 생성 Master":
             with col_hdr_r:
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
-                # [요구사항 2] 캘린더 날짜 입력 피커 및 포맷팅 적용
                 date_str = render_date_input("Date", st.session_state['doc_info'].get("date", ""), "date")
                 our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
@@ -1476,7 +1478,6 @@ if menu == "서류 분석 / 생성 Master":
             curr_currency = currency if currency else "KRW"
             curr_sym = get_currency_symbol(curr_currency)
 
-            # 세션 헤더 정보 업데이트
             st.session_state['doc_info'].update({
                 "to": to_name, "attn": attn_name, "your_ref": your_ref, "ship": ship_name,
                 "flag_class": flag_class, "pic": pic_name, "date": date_str, "our_ref": our_ref,
@@ -1502,7 +1503,6 @@ if menu == "서류 분석 / 생성 Master":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
-            # [요구사항 10 반영] 사용자 계정별 표시할 열 숨김/보이기 설정 저장
             all_possible_cols = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             visible_cols_selected = st.multiselect(
                 "👁️ 표에 표시할 열 선택 (계정별 숨김 설정 저장됨)",
@@ -1539,14 +1539,10 @@ if menu == "서류 분석 / 생성 Master":
                     st.success(f"✅ '{target_item_row.get('ItemName')}' 품목이 입력 표에 추가되었습니다.")
                     st.rerun()
 
-            # [요구사항 9 & 10 반영] 1열 넘버링, ItemName (PartNo) 순서 정렬 및 Amount 자동 계산
             raw_df = clean_df(st.session_state['doc_items'].copy())
             recalced_df = recalculate_items_df(raw_df, currency=curr_currency)
             
-            # 1열 넘버링 (No.) 생성
             recalced_df.insert(0, "No.", range(1, len(recalced_df) + 1))
-            
-            # 선택된 열만 필터링하여 에디터에 표시
             display_cols = ["No."] + [c for c in visible_cols_selected if c in recalced_df.columns]
             df_for_editor = recalced_df[display_cols]
 
@@ -1558,11 +1554,9 @@ if menu == "서류 분석 / 생성 Master":
                 column_config={"No.": st.column_config.NumberColumn("No.", disabled=True, width="small")}
             )
 
-            # 에디터 수정 사항을 세션 상태에 저장 ("No." 열 제외)
             save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
             st.session_state['doc_items'] = recalculate_items_df(save_edited_df, currency=curr_currency)
 
-            # [요구사항 8] 작성 중 자동 임시저장
             save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
 
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
@@ -1786,7 +1780,7 @@ elif menu == "서류 관리 대장":
                         st.rerun()
 
 # ==========================================
-# 8. 자재 단가 마스터 DB ([요구사항 10] ItemName -> PartNo 순서 반영)
+# 8. 자재 단가 마스터 DB
 # ==========================================
 elif menu == "자재 단가 마스터 DB":
     st.markdown(f"""<div class="main-header"><h1>{t('item_master_title')}</h1><p>구매/판매 자재 및 품목 단가 정보를 통합 관리합니다. 더주원 등 공급사 가격표를 AI로 자동 수집할 수 있습니다.</p></div>""", unsafe_allow_html=True)
