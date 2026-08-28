@@ -36,7 +36,7 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 페이지 설정 & 최상단 CSS 적용 (로그인 디자인 복구)
+# 0. 페이지 설정 & 최상단 CSS
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
@@ -151,7 +151,6 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 세션 상태 안전 초기화
 if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
@@ -306,16 +305,12 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-3. 세션 콜백 및 스마트 위젯 (추천 버튼 100% 고정 정렬)
+# 0-3. 세션 콜백 및 스마트 위젯 (추천 버튼 100% 고정)
 # ==========================================
 def set_session_val(key, val):
     st.session_state[key] = val
 
 def render_unified_input(label, current_val, base_options, key_prefix):
-    """
-    🎯 [추천 버튼 고정] 옵션이 비어있어도 항시 col_in, col_pop 구조를 유지하여
-    화면 레이아웃 및 너비가 항상 100% 정렬되도록 보완
-    """
     txt_key = f"{key_prefix}_txt"
     curr = clean_str(current_val)
 
@@ -362,7 +357,7 @@ def render_date_input(label, current_val, key_prefix):
 
     col_in, col_pop = st.columns([0.88, 0.12])
     with col_in:
-        # 🎯 "📅 {label}" 이모지를 다른 필드와 동일하게 "▾ {label}" 로 수정
+        # 🎯 Date 라벨 이모지를 ▾ 로 수정하여 타 위젯과 디자인 완벽 통일
         user_val = st.text_input(f"▾ {label}", key=txt_key)
         formatted_val = format_date_str(user_val)
         if formatted_val != user_val:
@@ -594,7 +589,7 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
     st.session_state['draft_loaded_for_user'] = user_email_key
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (Autofit 정밀 개선)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -614,37 +609,22 @@ INLINE_HTML_TEMPLATE = """
     .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
-/* 🎯 기존 테이블 가로 너비 비율은 고정 유지 */
-    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; }
+    
+    /* 🎯 PDF 표 높이 Autofit 및 No. - Description 간격 밀착 조정 */
+    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; table-layout: fixed; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
+    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
+    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 4px 5px; vertical-align: top; }
     
-    /* 🎯 행 및 셀 높이 오토핏 (내용 줄수에 맞춰 높이 자동 확장) */
-    table.data-table tr { 
-        height: auto !important; 
-        page-break-inside: avoid !important; 
-        break-inside: avoid !important; 
-    }
-    table.data-table th, table.data-table td { 
-        border: 0.9px solid #000; 
-        padding: 4px 5px; 
-        vertical-align: middle; 
-        height: auto !important; /* 높이 고정 해제 및 내용 맞춤 */
-    }
-
-    /* 🎯 가로 너비 설정 (기존 비율 유지) */
-    .col-no { width: 5%; text-align: center; }
-    .col-desc { width: 55%; white-space: pre-wrap; word-break: break-word; } /* 엔터/줄바꿈 시 높이 자동 늘어남 */
-    .col-qty { width: 8%; text-align: center; }
-    .col-price { width: 16%; text-align: right !important; }
-    .col-amt { width: 16%; text-align: right !important; }
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
-    .col-no { width: 5%; text-align: center; }
-    .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
-    .col-qty { width: 8%; text-align: center; }
+    
+    .col-no { width: 4%; text-align: center; padding-left: 2px; padding-right: 2px; }
+    .col-desc { width: 58%; text-align: left; white-space: pre-wrap; word-break: break-word; }
+    .col-qty { width: 6%; text-align: center; }
     .col-price { width: 16%; text-align: right !important; }
     .col-amt { width: 16%; text-align: right !important; }
     .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
@@ -715,15 +695,7 @@ INLINE_HTML_TEMPLATE = """
             {% for item in items %}
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc">
-                    {% if item.ItemName %}
-                        <strong>{{ item.ItemName }}</strong>{% if item.PartNo %} ({{ item.PartNo }}){% endif %}<br>
-                    {% elif item.PartNo %}
-                        <strong>Part No: {{ item.PartNo }}</strong><br>
-                    {% endif %}
-                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}
-                    {% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>[Deviations/Note: {{ item.Remarks | replace('\n', '<br>') }}]</em></span>{% endif %}
-                </td>
+                <td class="col-desc">{% if item.ItemName %}<strong>{{ item.ItemName }}</strong>{% if item.PartNo %} ({{ item.PartNo }}){% endif %}{% elif item.PartNo %}<strong>Part No: {{ item.PartNo }}</strong>{% endif %}{% if item.Description and item.Description != item.ItemName %}<br>{{ item.Description | replace('\n', '<br>') }}{% endif %}{% if item.Remarks %}<br><span style="font-size: 8pt; color: #444;"><em>[Deviations/Note: {{ item.Remarks | replace('\n', '<br>') }}]</em></span>{% endif %}</td>
                 <td class="col-qty">{{ item.Qty }}</td>
                 <td class="col-price" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
                 <td class="col-amt" style="text-align: right;">{{ item.AmountFormatted }}</td>
@@ -792,17 +764,29 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
     
     valid_items = []
     for item in items_list:
-        iname, desc, pno = clean_str(item.get('ItemName', '')), clean_str(item.get('Description', '')), clean_str(item.get('PartNo', ''))
-        qty_raw, u_p_val, amt_val, rem = clean_str(item.get('Qty', '')), safe_float(item.get('UnitPrice', 0)), safe_float(item.get('Amount', 0)), clean_str(item.get('Remarks', ''))
+        iname = clean_str(item.get('ItemName', '')).strip()
+        desc = clean_str(item.get('Description', '')).strip()
+        pno = clean_str(item.get('PartNo', '')).strip()
+        qty_raw = clean_str(item.get('Qty', '')).strip()
+        u_p_val = safe_float(item.get('UnitPrice', 0))
+        amt_val = safe_float(item.get('Amount', 0))
+        rem = clean_str(item.get('Remarks', '')).strip()
         if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
             valid_items.append(item)
 
     for item in valid_items:
         item_copy = dict(item)
-        item_copy['ItemName'] = clean_str(item_copy.get('ItemName', ''))
-        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', ''))
-        item_copy['Description'] = clean_str(item_copy.get('Description', ''))
-        item_copy['Remarks'] = clean_str(item_copy.get('Remarks', ''))
+        item_copy['ItemName'] = clean_str(item_copy.get('ItemName', '')).strip()
+        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', '')).strip()
+        
+        # 🎯 개행문자 정제 (불필요한 공백 라인 생성 제거)
+        desc = clean_str(item_copy.get('Description', '')).strip()
+        desc = re.sub(r'\n\s*\n', '\n', desc)
+        item_copy['Description'] = desc
+        
+        rem = clean_str(item_copy.get('Remarks', '')).strip()
+        rem = re.sub(r'\n\s*\n', '\n', rem)
+        item_copy['Remarks'] = rem
         
         qty_raw = item_copy.get('Qty', '')
         q_val = safe_float(qty_raw, default=None)
@@ -1174,7 +1158,7 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 🎯 [메뉴 순서 조정] 업무 방향 선택을 SYSTEM MENU 위쪽에 우선 배치
+# 🎯 [요구사항] 업무 방향 선택을 SYSTEM MENU 위쪽에 배치
 pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
 is_outbound = "매출" in pipeline_dir
 
@@ -1538,8 +1522,6 @@ if menu == "서류 파이프라인 Master":
             }
             try:
                 realtime_pdf_bytes = generate_pdf(preview_ctx)
-                
-                # 🎯 [매입 서류 슬래시(/) 정제 - Errno 2 완전 차단]
                 safe_doc_filename = re.sub(r'[\\/*?:"<>|]', '_', clean_str(doc_type))
                 file_n = f"{safe_doc_filename}_{our_ref or your_ref or 'Draft'}.pdf"
                 
