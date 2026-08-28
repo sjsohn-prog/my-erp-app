@@ -134,18 +134,18 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# DB 컬럼 정의 (InputFileName 추가로 1:1 서류 원본 매칭 추적)
+# DB 컬럼 정의
 doc_db_cols = ["IssueDate", "DocDate", "DocType", "OurRef", "YourRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status", "InputFileName"]
 item_master_cols = ["ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"]
 partner_db_cols = ["PartnerName", "PartnerType", "PIC", "Email", "Phone", "DefaultPayment", "DefaultValidity", "Remarks"]
 vessel_db_cols = ["ShipName", "IMONo", "Flag", "Class", "Owner", "Remarks"]
 
-# 직관적으로 명확화된 시트/DB 파일명 정의
-OUTBOUND_LEDGER_FILE = "db_outbound_ledger.csv"  # 매출 서류 대장
-INBOUND_LEDGER_FILE = "db_inbound_ledger.csv"    # 매입 서류 대장
-ITEM_MASTER_FILE = "db_item_master.csv"          # 자재 마스터
-PARTNER_DB_FILE = "db_partner.csv"               # 거래처 DB
-VESSEL_DB_FILE = "db_vessel.csv"                 # 선박 DB
+# 시트/DB 파일명 정의
+OUTBOUND_LEDGER_FILE = "db_outbound_ledger.csv"
+INBOUND_LEDGER_FILE = "db_inbound_ledger.csv"
+ITEM_MASTER_FILE = "db_item_master.csv"
+PARTNER_DB_FILE = "db_partner.csv"
+VESSEL_DB_FILE = "db_vessel.csv"
 
 DRAFTS_FILE = "user_drafts.json"
 HISTORY_FILE = "master_history.json"
@@ -174,7 +174,7 @@ if 'visible_cols' not in st.session_state:
     st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
+# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동 (API Caching 최적화)
 # ==========================================
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
@@ -199,6 +199,8 @@ def ensure_cols(df, target_cols):
     for col in target_cols:
         if col not in df.columns:
             df[col] = "-"
+        else:
+            df[col] = df[col].fillna("-").astype(str)
     return df[target_cols]
 
 def extract_items_list(res):
@@ -264,18 +266,30 @@ def get_gsheet_client():
     except Exception: pass
     return None
 
-def safe_read_csv(filepath, default_cols=None):
-    if default_cols is None: default_cols = []
-    sheet_title = os.path.splitext(os.path.basename(filepath))[0]
+# 구글 시트 429 Quota Exceeded 방지용 Caching 적용
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_gsheet_data(spreadsheet_key, sheet_title):
     gc = get_gsheet_client()
-    spreadsheet_key = get_secret("SPREADSHEET_KEY")
-    
     if gc and spreadsheet_key:
         try:
             sh = gc.open_by_key(spreadsheet_key)
             ws = sh.worksheet(sheet_title)
             data = ws.get_all_records()
-            if isinstance(data, list): return ensure_cols(pd.DataFrame(data), default_cols)
+            if isinstance(data, list) and len(data) > 0:
+                return pd.DataFrame(data)
+        except Exception: pass
+    return None
+
+def safe_read_csv(filepath, default_cols=None):
+    if default_cols is None: default_cols = []
+    sheet_title = os.path.splitext(os.path.basename(filepath))[0]
+    spreadsheet_key = get_secret("SPREADSHEET_KEY")
+    
+    if spreadsheet_key:
+        try:
+            cached_df = fetch_gsheet_data(spreadsheet_key, sheet_title)
+            if cached_df is not None and not cached_df.empty:
+                return ensure_cols(cached_df, default_cols)
         except Exception: pass
 
     with file_access_lock:
@@ -294,6 +308,8 @@ def safe_save_csv(df, filepath, default_cols=None):
     with file_access_lock:
         cleaned_df.to_csv(filepath, index=False)
     
+    st.cache_data.clear()  # 저장 발생 시 캐시 초기화
+    
     sheet_title = os.path.splitext(os.path.basename(filepath))[0]
     gc = get_gsheet_client()
     spreadsheet_key = get_secret("SPREADSHEET_KEY")
@@ -306,7 +322,10 @@ def safe_save_csv(df, filepath, default_cols=None):
             values_to_write = [cleaned_df.columns.values.tolist()] + cleaned_df.fillna("").values.tolist()
             ws.update(values_to_write, 'A1')
         except Exception as e:
-            st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
+            if "429" in str(e):
+                st.toast("ℹ️ 구글 시트 요청 한도 초과로 로컬 CSV에 저장되었습니다.", icon="💾")
+            else:
+                st.toast(f"⚠️ 구글 시트 저장 주의 (로컬 CSV 반영됨): {e}", icon="⚠️")
 
 # ==========================================
 # 0-3. 세션 콜백 및 스마트 위젯
@@ -846,7 +865,6 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-# InputFileName(상대방 원본 서류파일명) 추가 반영 함수
 def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email="", input_file_name=""):
     df = ensure_cols(safe_read_csv(target_db_file, doc_db_cols), doc_db_cols)
     issue_date_str = get_kst_now().strftime("%Y-%m-%d %H:%M")
@@ -863,10 +881,16 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
 
     safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
 
+# 타입 선제 변환(.astype(str))을 통한 AttributeError 원천 방지
 def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW", is_outbound=True):
     if items_df is None or items_df.empty: return 0
     master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
     
+    # 데이터프레임 내 텍스트 열 타입 보장
+    for c in ["ItemName", "PartNo", "Description", "Supplier", "Remarks", "Currency"]:
+        if c in master_df.columns:
+            master_df[c] = master_df[c].fillna("").astype(str)
+
     updated_count = 0
     for _, row in items_df.iterrows():
         pno = clean_str(row.get('PartNo', ''))
@@ -1395,7 +1419,6 @@ if menu == "서류 파이프라인 Master":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
 
-            # 단일 스마트 일괄 자동 등록 버튼 (원본 파일 1:1 결합 정보 함께 저장)
             if st.button("🚀 스마트 일괄 자동 등록 (서류 대장 + 자재 DB 동시 저장)", key="btn_reg_all_batch", disabled=is_running):
                 if reg_pwd != SAVE_PASSWORD: 
                     st.error(t("pwd_err"))
@@ -1531,8 +1554,9 @@ elif menu == "통합 DB 마스터":
             curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + [str(x) for x in db_df["Currency"].unique()]))
             status_opts = list(set(STATUS_OPTIONS + ["-", ""] + [str(x) for x in db_df["Status"].unique()]))
 
-            for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy", "DocType", "Currency", "Status", "InputFileName"]:
-                db_df[col] = db_df[col].fillna("-").astype(str)
+            for col in doc_db_cols:
+                if col in db_df.columns:
+                    db_df[col] = db_df[col].fillna("-").astype(str)
 
             status_counts = db_df["Status"].value_counts()
             c_m1, c_m2, c_m3, c_m4, c_m5 = st.columns(5)
@@ -1707,7 +1731,7 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력 & 갤러리 (1:1 매칭 나란히 대조 보기 강화)
+# 9. 서류 이력 & 갤러리
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 서류와 상대방 원본 분석 서류를 1:1 세트로 직접 비교·조회합니다.</p></div>""", unsafe_allow_html=True)
@@ -1748,7 +1772,6 @@ else:
                         out_path = os.path.join("output", out_pdf_name)
                         
                         if not os.path.exists(out_path):
-                            # 매칭되는 대체 파일 탐색
                             for f in os.listdir("output"):
                                 if ref_key and ref_key in f and f.endswith(".pdf"):
                                     out_path = os.path.join("output", f)
