@@ -16,6 +16,15 @@ from PIL import Image
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 import pymupdf  # fitz API 경고 방지용 최신 PyMuPDF
 
+# ==========================================
+# C-Library (WeasyPrint) 안전 예외 처리
+# ==========================================
+HAS_WEASYPRINT = True
+try:
+    from weasyprint import HTML
+except Exception:
+    HAS_WEASYPRINT = False
+
 # 구글 시트 연동 라이브러리 예외 처리
 try:
     import gspread
@@ -23,6 +32,9 @@ try:
     HAS_GSPREAD = True
 except ImportError:
     HAS_GSPREAD = False
+
+# 스레드 동시성 파일 제어용 락(Lock) 객체
+file_access_lock = threading.Lock()
 
 # ==========================================
 # 0. 보안 비밀번호 및 환경 설정
@@ -172,6 +184,7 @@ def safe_read_csv(filepath, default_cols=None):
     sheet_title = os.path.splitext(os.path.basename(filepath))[0]
     gc = get_gsheet_client()
     spreadsheet_key = get_secret("SPREADSHEET_KEY")
+    
     if gc and spreadsheet_key:
         try:
             sh = gc.open_by_key(spreadsheet_key)
@@ -180,18 +193,21 @@ def safe_read_csv(filepath, default_cols=None):
             if isinstance(data, list): return ensure_cols(pd.DataFrame(data), default_cols)
         except Exception: pass
 
-    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
-        return pd.DataFrame(columns=default_cols)
-    try:
-        df = pd.read_csv(filepath)
-        return ensure_cols(df, default_cols)
-    except Exception:
-        return pd.DataFrame(columns=default_cols)
+    with file_access_lock:
+        if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            return pd.DataFrame(columns=default_cols)
+        try:
+            df = pd.read_csv(filepath)
+            return ensure_cols(df, default_cols)
+        except Exception:
+            return pd.DataFrame(columns=default_cols)
 
 def safe_save_csv(df, filepath, default_cols=None):
     if default_cols is None: default_cols = []
     cleaned_df = ensure_cols(clean_df(df), default_cols)
-    cleaned_df.to_csv(filepath, index=False)
+    
+    with file_access_lock:
+        cleaned_df.to_csv(filepath, index=False)
     
     sheet_title = os.path.splitext(os.path.basename(filepath))[0]
     gc = get_gsheet_client()
@@ -201,8 +217,10 @@ def safe_save_csv(df, filepath, default_cols=None):
             sh = gc.open_by_key(spreadsheet_key)
             try: ws = sh.worksheet(sheet_title)
             except Exception: ws = sh.add_worksheet(title=sheet_title, rows="1000", cols="20")
-            ws.clear()
-            ws.update([cleaned_df.columns.values.tolist()] + cleaned_df.fillna("").values.tolist())
+            
+            # 동시성 파손 방지: 전체 초기화(clear) 대신 위치 기반 직접 덮어쓰기 사용
+            values_to_write = [cleaned_df.columns.values.tolist()] + cleaned_df.fillna("").values.tolist()
+            ws.update(values_to_write, 'A1')
         except Exception as e:
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
@@ -458,7 +476,7 @@ custom_css = """
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
 
-    /* 🎯 실시간 매매기준율 위젯 전용 CSS (밀착 레이아웃 및 배경색 통일) */
+    /* 실시간 매매기준율 위젯 전용 CSS */
     div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) {
         background: rgba(15, 23, 42, 0.75) !important;
         border: 1px solid rgba(2, 132, 199, 0.4) !important;
@@ -468,7 +486,6 @@ custom_css = """
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
     }
 
-    /* 제목과 버튼 간격 밀착 설정 */
     div[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:has(div.rate-card-anchor) div[data-testid="stHorizontalBlock"] {
         align-items: center !important;
         gap: 4px !important;
@@ -607,7 +624,6 @@ INLINE_HTML_TEMPLATE = """
             </tr>
         </table>
         
-        <!-- 🎯 굵은 밑줄 바로 위에 들어가는 회사 주소 및 연락처 정보 -->
         <div style="text-align: center; margin-top: 6px; font-size: 7.5pt; font-style: italic; line-height: 1.25; color: #000;">
             Address: Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733, Republic of Korea<br>
             TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr, tech@1solution.co.kr
@@ -745,7 +761,8 @@ gemini_key = load_saved_key()
 
 def _sync_local_cache(df, filepath, default_cols):
     cleaned_df = ensure_cols(clean_df(df), default_cols)
-    cleaned_df.to_csv(filepath, index=False)
+    with file_access_lock:
+        cleaned_df.to_csv(filepath, index=False)
 
 our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
 _sync_local_cache(our_db_init, OUR_DB_FILE, doc_db_cols)
@@ -815,10 +832,15 @@ if 'doc_items' not in st.session_state:
 # ==========================================
 # 4. AI 파싱 엔진
 # ==========================================
+# ==========================================
+# 4. AI 파싱 엔진 (Gemini 3.6 전용 지정)
+# ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
-    if not api_key or not str(api_key).strip(): raise Exception("Gemini API Key가 누락되었습니다.")
+    if not api_key or not str(api_key).strip(): 
+        raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
+    # 이전 대화 요구사항에 맞춰 제미나이 3.6 모델 고정 호출
     primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
     candidate_models = [primary_model] if primary_model == "gemini-3.6-flash" else [primary_model, "gemini-3.6-flash"]
 
@@ -830,9 +852,13 @@ def get_ai_response(api_key, content_list, mode="flash"):
                 response = model.generate_content(content_list)
                 if response and response.text:
                     res_text = response.text.strip()
+                    # 마크다운 백틱 및 코드블록 제거 보완
+                    res_text = re.sub(r'```(?:json)?', '', res_text).replace('```', '').strip()
+                    
                     s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
                     e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
-                    if s_idx != -1 and e_idx != -1: res_text = res_text[s_idx:e_idx + 1]
+                    if s_idx != -1 and e_idx != -1: 
+                        res_text = res_text[s_idx:e_idx + 1]
                     return json.loads(res_text)
             except Exception as e:
                 last_err = e
@@ -846,7 +872,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -904,7 +930,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -976,7 +1002,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
+        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -1051,7 +1077,8 @@ def start_bg_thread(target_func, args):
     t.start()
 
 def generate_pdf(context):
-    from weasyprint import HTML
+    if not HAS_WEASYPRINT:
+        raise RuntimeError("PDF 생성 엔진(WeasyPrint)이 시스템에 설치되어 있지 않습니다.")
     logo_path = os.path.abspath("logo.png")
     context["logo_base64"] = base64.b64encode(open(logo_path, "rb").read()).decode('utf-8') if os.path.exists(logo_path) else None
     
@@ -1080,9 +1107,6 @@ if st.session_state.get('user_email'):
         st.session_state['user_email'] = ""
         st.rerun()
 
-# 🎯 Powered by Gemini 3.6 배너 & 실시간 환율 카드 통합 코드
-
-# 🎯 [Powered by Gemini 3.6 배너 - 형광 하늘색 네온 스타일]
 st.sidebar.markdown("""
 <div style="
     background: rgba(0, 240, 255, 0.1);
@@ -1103,7 +1127,6 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 2. 실시간 환율 데이터 계산
 live_rates, rate_time = get_exchange_rates()
 usd_krw = live_rates.get("KRW", 1350.0)
 eur_usd = live_rates.get("EUR", 0.92)
@@ -1111,7 +1134,6 @@ eur_krw = usd_krw / eur_usd if eur_usd else 1480.0
 sgd_usd = live_rates.get("SGD", 1.35)
 sgd_krw = usd_krw / sgd_usd if sgd_usd else 1000.0
 
-# 3. 실시간 환율 카드
 st.sidebar.markdown(f"""
 <div style="background: rgba(2, 132, 199, 0.1); border: 1px solid #0284C7; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px;">
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; border-bottom: 1px dashed rgba(2, 132, 199, 0.25);">
@@ -1450,15 +1472,18 @@ if menu == "서류 분석 / 생성 Master":
                 "items": prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency),
                 "bottom_remarks": bottom_remarks, "total_amount_str": final_total_str, "vat_note": vat_note_str
             }
-            realtime_pdf_bytes = generate_pdf(preview_ctx)
-            file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
-            
-            with open(os.path.join("output", file_n), "wb") as f: f.write(realtime_pdf_bytes)
-            st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
-            
-            pdf_imgs = render_pdf_images(realtime_pdf_bytes)
-            if pdf_imgs:
-                for i, img_b in enumerate(pdf_imgs): st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
+            try:
+                realtime_pdf_bytes = generate_pdf(preview_ctx)
+                file_n = f"{doc_type}_{our_ref or your_ref or 'Draft'}.pdf"
+                
+                with open(os.path.join("output", file_n), "wb") as f: f.write(realtime_pdf_bytes)
+                st.download_button(t("btn_download_pdf"), realtime_pdf_bytes, file_name=file_n, mime="application/pdf", key="rt_download")
+                
+                pdf_imgs = render_pdf_images(realtime_pdf_bytes)
+                if pdf_imgs:
+                    for i, img_b in enumerate(pdf_imgs): st.image(img_b, caption=f"Page {i+1}", use_container_width=True)
+            except Exception as pdf_err:
+                st.warning(f"⚠️ PDF 미리보기 생성 대기 중: {pdf_err}")
 
 # ==========================================
 # 7. 서류 관리 대장
@@ -1544,7 +1569,6 @@ elif menu == "서류 관리 대장":
     with tab_our: render_ledger_tab(OUR_DB_FILE, "our_doc")
     with tab_cust: render_ledger_tab(CUSTOMER_DB_FILE, "cust_doc")
 
-    # AI 서류 대장 수집기
     with st.container(border=True):
         st.markdown(f'<div class="section-title">{t("ai_db_title")} (서류 대장 수집)</div>', unsafe_allow_html=True)
         
@@ -1660,7 +1684,6 @@ elif menu == "자재 단가 마스터 DB":
             st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
         else: st.info("등록된 자재/품목 데이터가 없습니다. 아래 AI 수집기를 이용하여 공급사 가격표를 수집해 보세요.")
 
-    # AI 자재 단가 수집기
     with st.container(border=True):
         st.markdown(f'<div class="section-title">🤖 AI 자재 단가 수집기 (공급사 가격표 전수 파싱)</div>', unsafe_allow_html=True)
         ai_mode_choice_db = st.radio(t("ai_mode_label"), [t("mode_flash"), t("mode_thinking")], horizontal=True, disabled=is_running, key="item_ai_mode")
