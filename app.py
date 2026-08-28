@@ -134,8 +134,8 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-# DB 컬럼 정의
-doc_db_cols = ["IssueDate", "DocDate", "DocType", "OurRef", "YourRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"]
+# DB 컬럼 정의 (InputFileName 추가로 1:1 서류 원본 매칭 추적)
+doc_db_cols = ["IssueDate", "DocDate", "DocType", "OurRef", "YourRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status", "InputFileName"]
 item_master_cols = ["ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"]
 partner_db_cols = ["PartnerName", "PartnerType", "PIC", "Email", "Phone", "DefaultPayment", "DefaultValidity", "Remarks"]
 vessel_db_cols = ["ShipName", "IMONo", "Flag", "Class", "Owner", "Remarks"]
@@ -165,7 +165,7 @@ if 'bg_task' not in st.session_state:
     st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
 
 if 'doc_info' not in st.session_state:
-    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": "", "input_file_name": ""}
 
 if 'doc_items' not in st.session_state:
     st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
@@ -814,7 +814,7 @@ def _sync_local_cache(df, filepath, default_cols):
     with file_access_lock:
         cleaned_df.to_csv(filepath, index=False)
 
-# 직관화된 시트 파일 로딩 및 캐시 동기화
+# 시트 파일 로딩 및 동기화
 outbound_init = ensure_cols(safe_read_csv(OUTBOUND_LEDGER_FILE, doc_db_cols), doc_db_cols)
 _sync_local_cache(outbound_init, OUTBOUND_LEDGER_FILE, doc_db_cols)
 
@@ -846,7 +846,8 @@ def save_history(ship, to, attn):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
+# InputFileName(상대방 원본 서류파일명) 추가 반영 함수
+def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email="", input_file_name=""):
     df = ensure_cols(safe_read_csv(target_db_file, doc_db_cols), doc_db_cols)
     issue_date_str = get_kst_now().strftime("%Y-%m-%d %H:%M")
     logged_user = user_email or st.session_state.get('user_email', 'Unknown')
@@ -856,12 +857,12 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
         "IssueDate": issue_date_str, "DocDate": doc_date_str or "-", "DocType": doc_type,
         "OurRef": our_ref or "-", "YourRef": your_ref or "-", "ShipName": ship_name or "-",
         "TargetName": target_name or "-", "Currency": currency or "-", "TotalAmount": total_amount,
-        "ItemCount": item_count, "CreatedBy": logged_user, "Status": default_status
+        "ItemCount": item_count, "CreatedBy": logged_user, "Status": default_status,
+        "InputFileName": input_file_name or "-"
     }])
 
     safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
 
-# 매입/매출 격리 및 DB 중복 갱신 완벽 반영 함수
 def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW", is_outbound=True):
     if items_df is None or items_df.empty: return 0
     master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
@@ -980,7 +981,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
         else: content = {"mime_type": "application/pdf", "data": file_bytes}
 
         ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
-        task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data, 'file_name': file_name}
+        task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data, 'file_name': save_path}
         task_state['status'] = 'completed'
     except Exception as e:
         task_state['status'] = 'error'
@@ -1138,7 +1139,8 @@ if menu == "서류 파이프라인 Master":
 
     if task['status'] == 'completed' and task['type'] == 'doc_parse':
         ai_data = task['result']['ai_data']
-        file_name = task['result'].get('file_name', '')
+        file_saved_path = task['result'].get('file_name', '')
+        saved_fn = os.path.basename(file_saved_path) if file_saved_path else ""
         
         issuer_comp = clean_str(ai_data.get("issuer_company", ""))
         issuer_pic = clean_str(ai_data.get("issuer_pic", "")) or clean_str(ai_data.get("pic", ""))
@@ -1173,7 +1175,7 @@ if menu == "서류 파이프라인 Master":
 
         st.session_state['parsed_input_doc'] = {
             "DocType": clean_str(ai_data.get("doc_type", doc_type)) or "Invoice",
-            "YourRef": your_ref_val or clean_str(ai_data.get("our_ref", "")) or file_name,
+            "YourRef": your_ref_val or clean_str(ai_data.get("our_ref", "")) or saved_fn,
             "OurRef": "-", "ShipName": ship_val or "-",
             "TargetName": issuer_comp or to_field_val or recip_comp or "-",
             "DocDate": date_val or get_kst_now().strftime("%Y-%m-%d"),
@@ -1188,7 +1190,8 @@ if menu == "서류 파이프라인 Master":
             "validity": validity_val, "flag_class": flag_class_val, "our_ref": our_ref_val,
             "date": date_val, "pic": pic_field_val, "your_ref": your_ref_val, "ship": ship_val, 
             "payment_due": payment_due_val, "currency": currency_val, 
-            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
+            "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", ""),
+            "input_file_name": saved_fn
         }
 
         st.session_state['to_txt'] = to_field_val
@@ -1219,7 +1222,7 @@ if menu == "서류 파이프라인 Master":
             
         st.session_state['bg_task']['status'] = 'idle'
         save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state.get('visible_cols'))
-        st.success("✅ AI 문서 분석 완료 & 타사 인풋/자사 아웃풋 역할 자동 분리.")
+        st.success("✅ AI 문서 분석 완료 & 상대방 원본 파일명 1:1 결합 매칭 설정.")
 
     left_col, right_col = st.columns([5, 5])
 
@@ -1255,7 +1258,7 @@ if menu == "서류 파이프라인 Master":
                         st.rerun()
 
         if st.button(t("btn_reset"), disabled=is_running):
-            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+            st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": "", "input_file_name": ""}
             st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
             if 'parsed_input_doc' in st.session_state: del st.session_state['parsed_input_doc']
@@ -1392,18 +1395,20 @@ if menu == "서류 파이프라인 Master":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
 
-            # 단일 스마트 일괄 자동 등록 버튼으로 통합
+            # 단일 스마트 일괄 자동 등록 버튼 (원본 파일 1:1 결합 정보 함께 저장)
             if st.button("🚀 스마트 일괄 자동 등록 (서류 대장 + 자재 DB 동시 저장)", key="btn_reg_all_batch", disabled=is_running):
                 if reg_pwd != SAVE_PASSWORD: 
                     st.error(t("pwd_err"))
                 else:
                     target_db = OUTBOUND_LEDGER_FILE if is_outbound else INBOUND_LEDGER_FILE
-                    save_to_doc_ledger(target_db, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
+                    input_fn = st.session_state['doc_info'].get("input_file_name", "-")
+                    
+                    save_to_doc_ledger(target_db, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'), input_file_name=input_fn)
                     save_history(ship_name, to_name, attn_name)
 
                     supp_nm = to_name or ("자사 서류 생성" if is_outbound else "공급사 서류")
                     count = save_items_to_master(st.session_state['doc_items'], supplier_name=supp_nm, currency=curr_currency, is_outbound=is_outbound)
-                    st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → {'매출' if is_outbound else '매입'} 서류 대장 저장\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
+                    st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → {'매출' if is_outbound else '매입'} 서류 대장 저장 (원본 매칭: {input_fn})\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
     with right_col:
         with st.container(border=True):
@@ -1526,7 +1531,7 @@ elif menu == "통합 DB 마스터":
             curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + [str(x) for x in db_df["Currency"].unique()]))
             status_opts = list(set(STATUS_OPTIONS + ["-", ""] + [str(x) for x in db_df["Status"].unique()]))
 
-            for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy", "DocType", "Currency", "Status"]:
+            for col in ["IssueDate", "DocDate", "OurRef", "YourRef", "ShipName", "TargetName", "CreatedBy", "DocType", "Currency", "Status", "InputFileName"]:
                 db_df[col] = db_df[col].fillna("-").astype(str)
 
             status_counts = db_df["Status"].value_counts()
@@ -1573,6 +1578,7 @@ elif menu == "통합 DB 마스터":
                     "ItemCount": st.column_config.NumberColumn("Item Count", format="%d"),
                     "CreatedBy": st.column_config.TextColumn("Created By"),
                     "Status": st.column_config.SelectboxColumn("▾ Status (파이프라인)", options=status_opts),
+                    "InputFileName": st.column_config.TextColumn("📎 상대방 원본 파일 (1:1 매칭)")
                 }
 
                 edited_df = st.data_editor(filtered_df, column_config=ledger_config, num_rows="dynamic", use_container_width=True, key=f"{tab_key_prefix}_editor")
@@ -1701,11 +1707,64 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력 & 갤러리
+# 9. 서류 이력 & 갤러리 (1:1 매칭 나란히 대조 보기 강화)
 # ==========================================
 else:
-    st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 문서와 AI 분석에 입력된 문서/이미지를 조회하고 다운로드합니다.</p></div>""", unsafe_allow_html=True)
-    tab_out, tab_in = st.tabs(["📄 생성 완료된 PDF 서류", "📥 AI 인풋 분석 문서/이미지"])
+    st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 서류와 상대방 원본 분석 서류를 1:1 세트로 직접 비교·조회합니다.</p></div>""", unsafe_allow_html=True)
+    tab_pairs, tab_out, tab_in = st.tabs(["🔗 1:1 서류 원본 대조 갤러리", "📄 자사 발행 PDF 서류", "📥 AI 인풋 분석 원본 파일"])
+
+    with tab_pairs:
+        out_ledger = safe_read_csv(OUTBOUND_LEDGER_FILE, doc_db_cols)
+        in_ledger = safe_read_csv(INBOUND_LEDGER_FILE, doc_db_cols)
+        combined_ledger = pd.concat([out_ledger, in_ledger], ignore_index=True)
+        
+        valid_pairs = combined_ledger[combined_ledger["InputFileName"].astype(str).str.strip().str.len() > 1]
+        
+        if not valid_pairs.empty:
+            st.caption(f"**총 {len(valid_pairs)}건의 1:1 매칭 서류 세트가 등록되어 있습니다.**")
+            for idx, r in valid_pairs.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**📌 [{r.get('DocType')}] OurRef: `{r.get('OurRef')}` | YourRef: `{r.get('YourRef')}` | 거래처: `{r.get('TargetName')}` | 선박: `{r.get('ShipName')}`**")
+                    p_col1, p_col2 = st.columns(2)
+                    
+                    with p_col1:
+                        st.caption("📥 **상대방 수신 원본 서류**")
+                        in_fn = str(r.get('InputFileName')).strip()
+                        in_path = os.path.join(INPUT_DOCS_DIR, in_fn)
+                        if os.path.exists(in_path):
+                            in_bytes = open(in_path, "rb").read()
+                            ext = in_fn.split('.')[-1].lower()
+                            if ext in ['png', 'jpg', 'jpeg']:
+                                st.image(in_bytes, caption=in_fn, use_container_width=True)
+                            st.download_button(f"💾 원본 다운로드 ({in_fn[:15]}...)", in_bytes, file_name=in_fn, key=f"pair_in_dl_{idx}")
+                        else:
+                            st.info(f"원본 파일: `{in_fn}`")
+
+                    with p_col2:
+                        st.caption("📄 **우리 측 발행 PDF 서류**")
+                        safe_dt = re.sub(r'[\\/*?:"<>|]', '_', clean_str(r.get('DocType')))
+                        ref_key = r.get('OurRef') if r.get('OurRef') != '-' else r.get('YourRef')
+                        out_pdf_name = f"{safe_dt}_{ref_key}.pdf"
+                        out_path = os.path.join("output", out_pdf_name)
+                        
+                        if not os.path.exists(out_path):
+                            # 매칭되는 대체 파일 탐색
+                            for f in os.listdir("output"):
+                                if ref_key and ref_key in f and f.endswith(".pdf"):
+                                    out_path = os.path.join("output", f)
+                                    out_pdf_name = f
+                                    break
+
+                        if os.path.exists(out_path):
+                            out_pdf_bytes = open(out_path, "rb").read()
+                            imgs = render_pdf_images(out_pdf_bytes)
+                            if imgs:
+                                st.image(imgs[0], caption=f"1페이지 미리보기 ({out_pdf_name})", use_container_width=True)
+                            st.download_button(f"💾 발행 PDF 다운로드", out_pdf_bytes, file_name=out_pdf_name, mime="application/pdf", key=f"pair_out_dl_{idx}")
+                        else:
+                            st.warning("⚠️ 발행 완료된 PDF 파일이 없습니다.")
+        else:
+            st.info("💡 아직 상대방 원본 문서와 결합 저장된 1:1 서류 세트 내역이 없습니다. (AI 분석 후 스마트 일괄 등록 시 자동 매칭)")
 
     with tab_out:
         pdf_files = sorted([f for f in os.listdir("output") if f.endswith('.pdf')], reverse=True)
