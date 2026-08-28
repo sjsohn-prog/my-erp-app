@@ -589,7 +589,7 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
     st.session_state['draft_loaded_for_user'] = user_email_key
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 (한글 깨짐 방지 & Autofit 보완)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -600,9 +600,9 @@ INLINE_HTML_TEMPLATE = """
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
     @page { 
         size: A4; margin-top: 32mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
-        @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
+        @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Noto Sans KR', sans-serif; }
     }
-    body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
+    body { font-family: 'Noto Sans KR', sans-serif !important; font-size: 8.5pt; line-height: 1.2; color: #000; }
     div.header-repeat { position: fixed; top: -25mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 4px; }
     .header-table { width: 100%; border-collapse: collapse; border: none !important; margin: 0 !important; }
     .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
@@ -610,6 +610,7 @@ INLINE_HTML_TEMPLATE = """
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
     
+    /* 🎯 PDF 한글 깨짐 방지 및 표 높이/너비 Autofit 최적화 */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; table-layout: fixed; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
@@ -621,11 +622,11 @@ INLINE_HTML_TEMPLATE = """
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     
-    .col-no { width: 4%; text-align: center; padding-left: 2px; padding-right: 2px; }
+    .col-no { width: 4%; text-align: center; padding-left: 2px; padding-right: 2px; vertical-align: middle !important; }
     .col-desc { width: 58%; text-align: left; white-space: pre-wrap; word-break: break-word; }
-    .col-qty { width: 6%; text-align: center; }
-    .col-price { width: 16%; text-align: right !important; }
-    .col-amt { width: 16%; text-align: right !important; }
+    .col-qty { width: 6%; text-align: center; vertical-align: middle !important; }
+    .col-price { width: 16%; text-align: right !important; vertical-align: middle !important; }
+    .col-amt { width: 16%; text-align: right !important; vertical-align: middle !important; }
     .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
@@ -775,16 +776,19 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
 
     for item in valid_items:
         item_copy = dict(item)
-        item_copy['ItemName'] = clean_str(item_copy.get('ItemName', '')).strip()
-        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', '')).strip()
-        
+        iname = clean_str(item_copy.get('ItemName', '')).strip()
+        pno = clean_str(item_copy.get('PartNo', '')).strip()
         desc = clean_str(item_copy.get('Description', '')).strip()
-        desc = re.sub(r'\n\s*\n', '\n', desc)
-        item_copy['Description'] = desc
-        
         rem = clean_str(item_copy.get('Remarks', '')).strip()
-        rem = re.sub(r'\n\s*\n', '\n', rem)
-        item_copy['Remarks'] = rem
+
+        # 🎯 ItemName과 Description이 완전히 동일하거나 중복되는 경우 Description 비우기
+        if desc.lower() == iname.lower() or desc.lower() == pno.lower():
+            desc = ""
+
+        item_copy['ItemName'] = iname
+        item_copy['PartNo'] = pno
+        item_copy['Description'] = re.sub(r'\n\s*\n', '\n', desc)
+        item_copy['Remarks'] = re.sub(r'\n\s*\n', '\n', rem)
         
         qty_raw = item_copy.get('Qty', '')
         q_val = safe_float(qty_raw, default=None)
@@ -873,9 +877,7 @@ def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
 
-# ==========================================
-# 4. AI 파싱 엔진
-# ==========================================
+# 🎯 [핵심] get_ai_response 파싱 함수 완전 복구 (NameError 해결)
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip(): 
         raise Exception("Gemini API Key가 누락되었습니다.")
@@ -1136,7 +1138,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바 Navigation (순서 조정 완료)
+# 5. UI 및 사이드바 Navigation
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1191,7 +1193,6 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 🎯 [요구사항] 업무 방향 선택을 SYSTEM MENU 위쪽에 배치
 pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
 is_outbound = "매출" in pipeline_dir
 
