@@ -1819,10 +1819,18 @@ else:
                         file_path = os.path.join(INPUT_DOCS_DIR, file_name)
                         file_bytes = open(file_path, "rb").read()
                         ext = file_name.split('.')[-1].lower()
-                        if ext in ['png', 'jpg', 'jpeg']: st.image(file_bytes, caption=file_name, use_container_width=True)
+                        
+                        # 이미지 및 PDF 썸네일 미리보기 지원
+                        if ext in ['png', 'jpg', 'jpeg']: 
+                            st.image(file_bytes, caption=file_name, use_container_width=True)
+                        elif ext == 'pdf':
+                            in_imgs = render_pdf_images(file_bytes)
+                            if in_imgs:
+                                st.image(in_imgs[0], caption=f"1페이지 미리보기 ({file_name})", use_container_width=True)
+                                
                         st.download_button("💾 파일 다운로드", file_bytes, file_name=file_name, key=f"dl_in_{idx}")
         else: st.info("AI 문서 분석에 업로드된 인풋 문서가 없습니다.")
-
+            
 if is_running:
     time.sleep(1.0)
     st.rerun()
