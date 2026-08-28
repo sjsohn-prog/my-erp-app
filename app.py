@@ -602,9 +602,8 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # 자바스크립트를 이용해 현재 탭 전체(top window)를 구글 로그인으로 직접 전환
-                if st.button(t("google_login"), use_container_width=True, key="btn_google_login_submit"):
-                    st.components.v1.html(f"<script>window.top.location.href='{auth_url}';</script>", height=0)
+                # 구글 보안 정책을 준수하는 유일하고 안전한 새 탭 인증 방식
+                st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
