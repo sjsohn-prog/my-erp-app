@@ -36,7 +36,7 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 페이지 설정 & 최상단 CSS (미래지향 네온 하이테크 스킨)
+# 0. 페이지 설정 & 최상단 CSS (네온 하이테크 스킨 보존)
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
@@ -59,7 +59,6 @@ custom_css = """
         padding-bottom: 1rem !important; 
     }
 
-    /* 상단 언어 선택 라디오 위치 고정 */
     div[data-testid="stRadio"]:has(input[aria-label="Language"]),
     div[data-testid="stRadio"]:has(input[value="🇰🇷"]) {
         position: fixed !important; top: 12px !important; right: 175px !important;
@@ -74,7 +73,12 @@ custom_css = """
     div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
     div[data-testid="stRadio"]:has(input[value="🇰🇷"]) > div { flex-direction: row !important; gap: 10px !important; }
 
-    /* 파이프라인 타이틀 메인 헤더 */
+    div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
+    div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
+    div[data-testid="stFileUploaderDropzone"] + div button { display: none !important; }
+
     .main-header { 
         background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.5) 100%) !important; 
         backdrop-filter: blur(16px) !important;
@@ -97,7 +101,6 @@ custom_css = """
         display: flex; align-items: center; gap: 6px;
     }
 
-    /* 카드 컨테이너 글래스모피즘 스킨 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: rgba(15, 23, 42, 0.6) !important;
         backdrop-filter: blur(16px) !important;
@@ -112,7 +115,6 @@ custom_css = """
         border-color: rgba(0, 240, 255, 0.5) !important;
     }
 
-    /* AI 분석 펼치기 박스 네온 스타일 */
     div[data-testid="stExpander"] {
         border: 1.5px solid #00F0FF !important; 
         border-radius: 14px !important;
@@ -134,7 +136,6 @@ custom_css = """
         text-shadow: 0 0 12px rgba(0, 240, 255, 0.6) !important; 
     }
 
-    /* 인풋 박스 및 셀렉트 박스 */
     div[data-baseweb="select"] div, div[data-baseweb="input"] input, textarea { 
         color: #F8FAFC !important; 
         font-weight: 500 !important;
@@ -144,7 +145,6 @@ custom_css = """
     div[data-baseweb="select"] { border-radius: 10px !important; }
     div[data-baseweb="input"] { border-radius: 10px !important; }
 
-    /* 메인 버튼 스타일링 (Hover Glowing) */
     .stButton > button, .google-btn { 
         display: inline-flex !important; align-items: center !important; justify-content: center !important;
         width: 100% !important; 
@@ -163,7 +163,6 @@ custom_css = """
         box-shadow: 0 6px 22px rgba(0, 240, 255, 0.65) !important;
     }
 
-    /* 탭 헤더 하이테크 변환 */
     button[data-baseweb="tab"] {
         color: #94A3B8 !important;
         font-weight: 700 !important;
@@ -177,7 +176,6 @@ custom_css = """
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
     }
 
-    /* 데이터 대장 메트릭 카드 시각화 */
     div[data-testid="stMetric"] {
         background: rgba(15, 23, 42, 0.8) !important;
         border: 1px solid rgba(0, 240, 255, 0.25) !important;
@@ -188,7 +186,6 @@ custom_css = """
     div[data-testid="stMetricLabel"] { font-size: 0.82rem !important; color: #94A3B8 !important; font-weight: 600 !important; }
     div[data-testid="stMetricValue"] { font-size: 1.35rem !important; color: #00F0FF !important; font-weight: 800 !important; font-family: 'JetBrains Mono', monospace !important; }
 
-    /* 로더 디스플레이 */
     .loader-container { display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.85); border: 2px solid #00F0FF; border-radius: 14px; padding: 18px; margin-bottom: 18px; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3); }
     .spinner { border: 4px solid rgba(0, 240, 255, 0.2); border-top: 4px solid #00F0FF; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin-right: 14px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -656,7 +653,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 로직
+# 1. UI 인증 로직 (새 탭/팝업 전용 구글 로그인 방식 적용)
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -696,12 +693,13 @@ if not st.session_state['authenticated']:
     _, center_col, _ = st.columns([1, 1.5, 1])
     with center_col:
         with st.container(border=True):
-            st.markdown("<h2 style='text-align: center; margin-top: 10px; margin-bottom: 4px; font-weight: 800;'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='text-align: center; margin-top: 10px; margin-bottom: 4px; font-weight: 800; color: #00F0FF; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);'>🚢 ONE - ERP</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='text-align: center; font-size: 0.88rem; color: #94A3B8; margin-bottom: 24px;'>{t('subtitle')}</p>", unsafe_allow_html=True)
             
             auth_url = get_google_auth_url()
             if auth_url:
-                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                # target="_blank"를 사용하여 구글 보안 가이드라인에 따른 새 탭/팝업 로그인 지원
+                st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
