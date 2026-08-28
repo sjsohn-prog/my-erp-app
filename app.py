@@ -589,7 +589,7 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
     st.session_state['draft_loaded_for_user'] = user_email_key
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿 (한글 깨짐 방지 & Autofit 보완)
+# 2. 내장형 PDF HTML 템플릿 (Autofit & box-sizing 완전 보완)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -598,6 +598,10 @@ INLINE_HTML_TEMPLATE = """
 <meta charset="UTF-8">
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+    
+    /* 🎯 전체 요소 box-sizing 지정으로 오른쪽 영역 잘림 및 밀림 완전 차단 */
+    * { box-sizing: border-box !important; }
+    
     @page { 
         size: A4; margin-top: 32mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
         @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Noto Sans KR', sans-serif; }
@@ -610,23 +614,23 @@ INLINE_HTML_TEMPLATE = """
     table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
     table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
     
-    /* 🎯 PDF 한글 깨짐 방지 및 표 높이/너비 Autofit 최적화 */
+    /* 🎯 PDF 표 높이 Autofit 및 가로 너비 안정적 배치 (오른쪽 단가/금액 짤림 방지) */
     table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; table-layout: fixed; }
     table.data-table thead { display: table-header-group; }
     table.data-table tbody { display: table-row-group; }
-    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
-    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 4px 5px; vertical-align: top; }
+    table.data-table tr { border: 0.9px solid #000; height: auto !important; page-break-inside: avoid !important; break-inside: avoid !important; }
+    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 4px 5px; vertical-align: top; height: auto !important; }
     
     .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
     .hdr-value { width: 34%; font-size: 8.5pt; }
     .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
     .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
     
-    .col-no { width: 4%; text-align: center; padding-left: 2px; padding-right: 2px; vertical-align: middle !important; }
-    .col-desc { width: 58%; text-align: left; white-space: pre-wrap; word-break: break-word; }
-    .col-qty { width: 6%; text-align: center; vertical-align: middle !important; }
-    .col-price { width: 16%; text-align: right !important; vertical-align: middle !important; }
-    .col-amt { width: 16%; text-align: right !important; vertical-align: middle !important; }
+    .col-no { width: 5%; text-align: center; padding-left: 2px; padding-right: 2px; vertical-align: middle !important; }
+    .col-desc { width: 52%; text-align: left; white-space: pre-wrap; word-break: break-word; }
+    .col-qty { width: 7%; text-align: center; vertical-align: middle !important; }
+    .col-price { width: 18%; text-align: right !important; vertical-align: middle !important; }
+    .col-amt { width: 18%; text-align: right !important; vertical-align: middle !important; }
     .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
 </style>
 </head>
@@ -781,7 +785,7 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
         desc = clean_str(item_copy.get('Description', '')).strip()
         rem = clean_str(item_copy.get('Remarks', '')).strip()
 
-        # 🎯 ItemName과 Description이 완전히 동일하거나 중복되는 경우 Description 비우기
+        # ItemName과 Description 중복 처리
         if desc.lower() == iname.lower() or desc.lower() == pno.lower():
             desc = ""
 
@@ -877,39 +881,9 @@ def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
 
-# 🎯 [핵심] get_ai_response 파싱 함수 완전 복구 (NameError 해결)
-def get_ai_response(api_key, content_list, mode="flash"):
-    if not api_key or not str(api_key).strip(): 
-        raise Exception("Gemini API Key가 누락되었습니다.")
-    genai.configure(api_key=api_key.strip())
-    
-    primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
-    candidate_models = [primary_model] if primary_model == "gemini-3.6-flash" else [primary_model, "gemini-3.6-flash"]
-
-    last_err = None
-    for model_name in candidate_models:
-        for attempt in range(2):
-            try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(content_list)
-                if response and response.text:
-                    res_text = response.text.strip()
-                    res_text = re.sub(r'```(?:json)?', '', res_text).replace('```', '').strip()
-                    
-                    s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
-                    e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
-                    if s_idx != -1 and e_idx != -1: 
-                        res_text = res_text[s_idx:e_idx + 1]
-                    return json.loads(res_text)
-            except Exception as e:
-                last_err = e
-                if ("429" in str(e) or "Quota" in str(e)) and attempt == 0:
-                    time.sleep(10)
-                    continue
-                break
-
-    raise Exception(f"Gemini API 요청 실패: {last_err}")
-
+# ==========================================
+# 4. AI 파싱 엔진
+# ==========================================
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
