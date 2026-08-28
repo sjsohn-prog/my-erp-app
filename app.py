@@ -37,7 +37,7 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 보안 비밀번호 및 환경 설정
+# 0. 보안 비밀번호 및 환경 설정 함수 (최상단 배치)
 # ==========================================
 def get_secret(key, default=""):
     try:
@@ -45,9 +45,23 @@ def get_secret(key, default=""):
     except Exception: pass
     return default
 
+KEY_FILE = "gemini_key.txt"
+DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
+
+def load_saved_key():
+    try:
+        if "GEMINI_API_KEY" in st.secrets: return st.secrets["GEMINI_API_KEY"]
+    except Exception: pass
+    if DEFAULT_GEMINI_KEY.strip(): return DEFAULT_GEMINI_KEY.strip()
+    if os.path.exists(KEY_FILE):
+        with open(KEY_FILE, "r", encoding="utf-8") as f: return f.read().strip()
+    return ""
+
+# 함수 선언 후 안전하게 변수 초기화
+gemini_key = load_saved_key()
+
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "admin0915")
 SAVE_PASSWORD = get_secret("SAVE_PASSWORD", "0915")
-DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
 FLAG_OPTIONS = [
     "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", 
@@ -102,41 +116,7 @@ os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
 # ==========================================
-# 0-1. 계정별 임시저장(Draft) 및 세션 복원
-# ==========================================
-def load_user_draft(user_email):
-    if not user_email or not os.path.exists(DRAFTS_FILE): return None
-    try:
-        with file_access_lock:
-            with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get(user_email)
-    except Exception: return None
-
-def save_user_draft(user_email, doc_info, doc_items, visible_cols=None):
-    if not user_email: return
-    try:
-        with file_access_lock:
-            data = {}
-            if os.path.exists(DRAFTS_FILE):
-                try:
-                    with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                except Exception: data = {}
-            
-            items_dict = doc_items.to_dict(orient="records") if isinstance(doc_items, pd.DataFrame) else doc_items
-            data[user_email] = {
-                "doc_info": doc_info,
-                "doc_items": items_dict,
-                "visible_cols": visible_cols or ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"],
-                "updated_at": get_kst_now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception: pass
-
-# ==========================================
-# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
+# 0-1. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
 # ==========================================
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
@@ -271,8 +251,12 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-3. 단일 입력 상자 + 팝오버 추천/달력 버튼 (중복 UI 완벽 해결)
+# 0-2. 세션 콜백 및 안전 스마트 위젯 (에러 완전 차단)
 # ==========================================
+def set_session_val(key, val):
+    """위젯 렌더링 전 세션 값을 안전하게 변경하는 콜백 함수"""
+    st.session_state[key] = val
+
 def render_unified_input(label, current_val, base_options, key_prefix):
     txt_key = f"{key_prefix}_txt"
     curr = clean_str(current_val)
@@ -286,19 +270,22 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     if opts:
         col_in, col_pop = st.columns([0.88, 0.12])
         with col_in:
-            val = st.text_input(f"▾ {label}", key=txt_key)
+            st.text_input(f"▾ {label}", key=txt_key)
         with col_pop:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             with st.popover("📋", help=f"{label} 추천/이력 선택"):
                 st.caption(f"**{label} 추천 목록**")
                 for idx, opt in enumerate(opts):
-                    if st.button(opt, key=f"{key_prefix}_pop_{idx}_{opt[:10]}"):
-                        st.session_state[txt_key] = opt
-                        st.rerun()
+                    st.button(
+                        opt, 
+                        key=f"{key_prefix}_pop_{idx}_{opt[:10]}", 
+                        on_click=set_session_val, 
+                        args=(txt_key, opt)
+                    )
     else:
-        val = st.text_input(f"▾ {label}", key=txt_key)
+        st.text_input(f"▾ {label}", key=txt_key)
 
-    return st.session_state.get(txt_key, val)
+    return st.session_state.get(txt_key, "")
 
 def format_date_str(raw_str):
     s = re.sub(r'[^0-9]', '', str(raw_str))
@@ -334,9 +321,42 @@ def render_date_input(label, current_val, key_prefix):
                 picked_str = picked.strftime("%Y-%m-%d")
                 if picked_str != st.session_state[txt_key]:
                     st.session_state[txt_key] = picked_str
-                    st.rerun()
 
-    return st.session_state.get(txt_key, user_val)
+    return st.session_state.get(txt_key, "")
+
+# ==========================================
+# 0-3. 계정별 임시저장(Draft) 및 세션 복원
+# ==========================================
+def load_user_draft(user_email):
+    if not user_email or not os.path.exists(DRAFTS_FILE): return None
+    try:
+        with file_access_lock:
+            with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get(user_email)
+    except Exception: return None
+
+def save_user_draft(user_email, doc_info, doc_items, visible_cols=None):
+    if not user_email: return
+    try:
+        with file_access_lock:
+            data = {}
+            if os.path.exists(DRAFTS_FILE):
+                try:
+                    with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception: data = {}
+            
+            items_dict = doc_items.to_dict(orient="records") if isinstance(doc_items, pd.DataFrame) else doc_items
+            data[user_email] = {
+                "doc_info": doc_info,
+                "doc_items": items_dict,
+                "visible_cols": visible_cols or ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"],
+                "updated_at": get_kst_now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception: pass
 
 # ==========================================
 # 0-4. i18n 다국어 사전
@@ -714,8 +734,6 @@ INLINE_HTML_TEMPLATE = """
 # ==========================================
 # 3. 환경 및 데이터 정제 필수 도구
 # ==========================================
-gemini_key = load_saved_key()
-
 def recalculate_items_df(df, currency="KRW"):
     if df is None or df.empty: return df
     df = df.copy()
@@ -1138,7 +1156,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바 Navigation (4대 핵심 메뉴 체계)
+# 5. UI 및 사이드바 Navigation (4대 메뉴)
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1214,7 +1232,7 @@ if task['status'] == 'error':
     st.error(f"❌ AI 분석 작업 중 오류가 발생했습니다: {task['error_msg']}")
 
 # ==========================================
-# 6. 서류 파이프라인 Master (매출 Outbound & 매입 Inbound 통합)
+# 6. 서류 파이프라인 Master
 # ==========================================
 if menu == "서류 파이프라인 Master":
     pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
@@ -1235,7 +1253,6 @@ if menu == "서류 파이프라인 Master":
     db_our_ref_options = sorted(list(set([str(x).strip() for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
     db_your_ref_options = sorted(list(set([str(x).strip() for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
 
-    # 🎯 [대표님 핵심 요구사항] 1초 서류 승계 (Previous Document Succession)
     with st.container(border=True):
         st.markdown("⚡ **[1초 서류 승계] 이전 서류 불러와서 자동 작성**")
         all_ref_options = ["-- 이전 서류 Ref No. 선택하여 헤더 및 품목 100% 불러오기 --"] + db_our_ref_options + db_your_ref_options
@@ -1356,7 +1373,7 @@ if menu == "서류 파이프라인 Master":
                     try:
                         excel_obj = pd.ExcelFile(io.BytesIO(uploaded_doc.getvalue()))
                         sheet_names = excel_obj.sheet_names
-                        parse_mode = st.radio(t("parse_mode"), ["📌 특정 시트 선택", "🚀 전체 시트 파싱"], horizontal=True, disabled=is_running, key="doc_gen_parse_mode")
+                        parse_mode = st.radio("파싱 모드", ["📌 특정 시트 선택", "🚀 전체 시트 파싱"], horizontal=True, disabled=is_running, key="doc_gen_parse_mode")
                         if parse_mode == "📌 특정 시트 선택":
                             selected_sheet = st.selectbox("시트 선택", sheet_names, disabled=is_running, key="doc_gen_sheet_sel")
                             if st.button(t("btn_ai_parse"), disabled=is_running, key="btn_doc_gen_analyze_sheet"):
@@ -1565,7 +1582,7 @@ if menu == "서류 파이프라인 Master":
                 st.warning(f"⚠️ PDF 미리보기 생성 대기 중: {pdf_err}")
 
 # ==========================================
-# 7. 📦 통합 DB 마스터 (대표님 요청사항 100% 반영)
+# 7. 📦 통합 DB 마스터
 # ==========================================
 elif menu == "통합 DB 마스터":
     st.markdown("""<div class="main-header"><h1>📦 통합 DB 마스터 (Unified Master Database)</h1><p>자재 단가, 거래처, 선박 정보 및 서류 관리 대장을 한 화면에서 선택 관리합니다.</p></div>""", unsafe_allow_html=True)
@@ -1575,7 +1592,6 @@ elif menu == "통합 DB 마스터":
         ["📦 자재/품목 마스터 DB", "🤝 통합 거래처 DB (Partners)", "🚢 선박/프로젝트 DB (Vessels)", "📊 서류 통합 관리 대장 (Document Ledgers)"]
     )
 
-    # 1. 자재 단가 마스터 DB
     if db_choice == "📦 자재/품목 마스터 DB":
         item_df = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
         item_df["BuyPrice"] = pd.to_numeric(item_df["BuyPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
@@ -1631,7 +1647,6 @@ elif menu == "통합 DB 마스터":
                 st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
             else: st.info("등록된 자재/품목 데이터가 없습니다.")
 
-    # 2. 통합 거래처 DB
     elif db_choice == "🤝 통합 거래처 DB (Partners)":
         partner_df = clean_df(ensure_cols(safe_read_csv(PARTNER_DB_FILE, partner_db_cols), partner_db_cols))
         with st.container(border=True):
@@ -1642,7 +1657,6 @@ elif menu == "통합 DB 마스터":
                 st.success("🎉 거래처 DB가 업데이트되었습니다.")
                 st.rerun()
 
-    # 3. 선박 DB
     elif db_choice == "🚢 선박/프로젝트 DB (Vessels)":
         vessel_df = clean_df(ensure_cols(safe_read_csv(VESSEL_DB_FILE, vessel_db_cols), vessel_db_cols))
         with st.container(border=True):
@@ -1653,7 +1667,6 @@ elif menu == "통합 DB 마스터":
                 st.success("🎉 선박 DB가 업데이트되었습니다.")
                 st.rerun()
 
-    # 4. 서류 통합 관리 대장
     else:
         tab_our, tab_cust = st.tabs(["🏢 자사 서류 대장", "🤝 고객사 / 공급사 서류 대장"])
         def render_ledger_tab(db_filepath, tab_key_prefix):
