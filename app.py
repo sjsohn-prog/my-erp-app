@@ -266,7 +266,6 @@ def get_gsheet_client():
     except Exception: pass
     return None
 
-# 구글 시트 429 Quota Exceeded 방지용 Caching 적용
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_gsheet_data(spreadsheet_key, sheet_title):
     gc = get_gsheet_client()
@@ -308,7 +307,7 @@ def safe_save_csv(df, filepath, default_cols=None):
     with file_access_lock:
         cleaned_df.to_csv(filepath, index=False)
     
-    st.cache_data.clear()  # 저장 발생 시 캐시 초기화
+    st.cache_data.clear()
     
     sheet_title = os.path.splitext(os.path.basename(filepath))[0]
     gc = get_gsheet_client()
@@ -881,12 +880,10 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
 
     safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
 
-# 타입 선제 변환(.astype(str))을 통한 AttributeError 원천 방지
 def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW", is_outbound=True):
     if items_df is None or items_df.empty: return 0
     master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
     
-    # 데이터프레임 내 텍스트 열 타입 보장
     for c in ["ItemName", "PartNo", "Description", "Supplier", "Remarks", "Currency"]:
         if c in master_df.columns:
             master_df[c] = master_df[c].fillna("").astype(str)
@@ -1431,6 +1428,9 @@ if menu == "서류 파이프라인 Master":
 
                     supp_nm = to_name or ("자사 서류 생성" if is_outbound else "공급사 서류")
                     count = save_items_to_master(st.session_state['doc_items'], supplier_name=supp_nm, currency=curr_currency, is_outbound=is_outbound)
+                    
+                    # 등록 완료 후 단발성 인풋 파일명 초기화
+                    st.session_state['doc_info']['input_file_name'] = ""
                     st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → {'매출' if is_outbound else '매입'} 서류 대장 저장 (원본 매칭: {input_fn})\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
     with right_col:
@@ -1731,7 +1731,7 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력 & 갤러리
+# 9. 서류 이력 & 갤러리 (PDF 인풋 렌더링 지원)
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 서류와 상대방 원본 분석 서류를 1:1 세트로 직접 비교·조회합니다.</p></div>""", unsafe_allow_html=True)
@@ -1760,6 +1760,10 @@ else:
                             ext = in_fn.split('.')[-1].lower()
                             if ext in ['png', 'jpg', 'jpeg']:
                                 st.image(in_bytes, caption=in_fn, use_container_width=True)
+                            elif ext == 'pdf':
+                                in_imgs = render_pdf_images(in_bytes)
+                                if in_imgs:
+                                    st.image(in_imgs[0], caption=f"1페이지 미리보기 ({in_fn})", use_container_width=True)
                             st.download_button(f"💾 원본 다운로드 ({in_fn[:15]}...)", in_bytes, file_name=in_fn, key=f"pair_in_dl_{idx}")
                         else:
                             st.info(f"원본 파일: `{in_fn}`")
