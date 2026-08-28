@@ -36,10 +36,71 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 최상단 환경 설정 및 세션 상태 일괄 초기화 (KeyError 완전 방지)
+# 0. 페이지 설정 & 최상단 CSS 적용 (로그인 디자인 복구)
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
+custom_css = """
+<style>
+    .main .block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
+    
+    div[data-testid="stRadio"]:has(input[aria-label="Language"]),
+    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) {
+        position: fixed !important; top: 10px !important; right: 175px !important;
+        z-index: 999999 !important; background: rgba(15, 23, 42, 0.9) !important;
+        border: 1px solid #0284C7 !important; padding: 2px 10px !important;
+        border-radius: 18px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+    }
+    div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
+    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) > div { flex-direction: row !important; gap: 10px !important; }
+
+    div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
+    div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
+    div[data-testid="stFileUploaderDropzone"] + div button { display: none !important; }
+
+    .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
+    .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
+    .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
+    
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--secondary-background-color) !important;
+        border: 2px solid #0284C7 !important; border-radius: 12px !important;
+        padding: 16px !important; margin-bottom: 16px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+    }
+
+    div[data-testid="stExpander"] {
+        border: 2px solid #00F0FF !important; border-radius: 12px !important;
+        background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(29, 78, 216, 0.12) 100%) !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.35) !important; margin-bottom: 20px !important; transition: all 0.3s ease;
+    }
+    div[data-testid="stExpander"]:hover { box-shadow: 0 0 22px rgba(0, 240, 255, 0.6) !important; border-color: #38BDF8 !important; }
+    div[data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 800 !important; color: #00F0FF !important; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important; }
+
+    div[data-baseweb="select"] div, div[data-baseweb="input"] input { color: #CBD5E1 !important; font-weight: 500 !important; }
+    div[data-baseweb="select"] { border-radius: 8px !important; }
+
+    .stButton > button, .google-btn { 
+        display: inline-flex !important; align-items: center !important; justify-content: center !important;
+        width: 100% !important; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
+        color: #FFFFFF !important; font-weight: 700 !important; border: none !important; 
+        padding: 8px 16px !important; border-radius: 8px !important; font-size: 0.95rem !important; 
+        text-decoration: none !important; box-sizing: border-box !important; height: 42px !important; margin-bottom: 12px !important;
+    }
+    .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
+    .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
+# ==========================================
+# 0-1. 보안 비밀번호 및 환경 설정 함수
+# ==========================================
 def get_secret(key, default=""):
     try:
         if key in st.secrets: return st.secrets[key]
@@ -90,7 +151,7 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
-# 🎯 [핵심] 로그인 전 모든 세션 상태 안전 초기화
+# 세션 상태 안전 초기화
 if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
 if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
 if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
@@ -110,7 +171,7 @@ if 'visible_cols' not in st.session_state:
     st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 0-1. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
+# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
 # ==========================================
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
@@ -245,12 +306,16 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-2. 세션 콜백 및 안전 스마트 위젯
+# 0-3. 세션 콜백 및 스마트 위젯 (추천 버튼 100% 고정 정렬)
 # ==========================================
 def set_session_val(key, val):
     st.session_state[key] = val
 
 def render_unified_input(label, current_val, base_options, key_prefix):
+    """
+    🎯 [추천 버튼 고정] 옵션이 비어있어도 항시 col_in, col_pop 구조를 유지하여
+    화면 레이아웃 및 너비가 항상 100% 정렬되도록 보완
+    """
     txt_key = f"{key_prefix}_txt"
     curr = clean_str(current_val)
 
@@ -260,14 +325,14 @@ def render_unified_input(label, current_val, base_options, key_prefix):
     opts = [clean_str(x) for x in base_options if clean_str(x)]
     opts = list(dict.fromkeys(opts))
 
-    if opts:
-        col_in, col_pop = st.columns([0.88, 0.12])
-        with col_in:
-            st.text_input(f"▾ {label}", key=txt_key)
-        with col_pop:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            with st.popover("📋", help=f"{label} 추천/이력 선택"):
-                st.caption(f"**{label} 추천 목록**")
+    col_in, col_pop = st.columns([0.88, 0.12])
+    with col_in:
+        st.text_input(f"▾ {label}", key=txt_key)
+    with col_pop:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        with st.popover("📋", help=f"{label} 추천/이력 선택"):
+            st.caption(f"**{label} 추천 목록**")
+            if opts:
                 for idx, opt in enumerate(opts):
                     st.button(
                         opt, 
@@ -275,8 +340,8 @@ def render_unified_input(label, current_val, base_options, key_prefix):
                         on_click=set_session_val, 
                         args=(txt_key, opt)
                     )
-    else:
-        st.text_input(f"▾ {label}", key=txt_key)
+            else:
+                st.caption("ℹ️ 저장된 이력이 없습니다.")
 
     return st.session_state.get(txt_key, "")
 
@@ -318,7 +383,7 @@ def render_date_input(label, current_val, key_prefix):
     return st.session_state.get(txt_key, "")
 
 # ==========================================
-# 0-3. 계정별 임시저장(Draft) 전용 제어 함수
+# 0-4. 계정별 임시저장(Draft) 제어
 # ==========================================
 def load_user_draft(user_email):
     if not user_email or not os.path.exists(DRAFTS_FILE): return None
@@ -352,7 +417,7 @@ def save_user_draft(user_email, doc_info, doc_items, visible_cols=None):
     except Exception: pass
 
 # ==========================================
-# 0-4. i18n 다국어 사전
+# 0-5. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -437,7 +502,7 @@ def t(key, **kwargs):
     return text.format(**kwargs) if kwargs else text
 
 # ==========================================
-# 0-5. 구글 OAuth 로그인 및 예외 보완
+# 0-6. 구글 OAuth 로그인
 # ==========================================
 def get_google_auth_url():
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI: return None
@@ -465,7 +530,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 및 레이아웃 제어
+# 1. UI 인증 로직
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -516,7 +581,7 @@ if not st.session_state['authenticated']:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
 
-# 🎯 [로그인 성공 직후 계정별 임시저장(Draft) 자동 복원 실행]
+# 로그인 성공 직후 계정별 임시저장(Draft) 자동 복원 실행
 user_email_key = st.session_state.get('user_email', '')
 if user_email_key and st.session_state.get('draft_loaded_for_user') != user_email_key:
     user_draft = load_user_draft(user_email_key)
@@ -1034,7 +1099,7 @@ def render_pdf_images(pdf_bytes):
     return images
 
 # ==========================================
-# 5. UI 및 사이드바 Navigation (4대 메뉴)
+# 5. UI 및 사이드바 Navigation (순서 조정 완료)
 # ==========================================
 st.sidebar.title("🚢 ONE - ERP")
 if st.session_state.get('user_email'):
@@ -1089,6 +1154,10 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# 🎯 [메뉴 순서 조정] 업무 방향 선택을 SYSTEM MENU 위쪽에 우선 배치
+pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
+is_outbound = "매출" in pipeline_dir
+
 menu_options = [t("menu_gen"), t("menu_db_master"), t("menu_history"), t("menu_admin")]
 menu_selection = st.sidebar.radio(t("sys_menu"), menu_options)
 
@@ -1114,9 +1183,6 @@ if task['status'] == 'error':
 # 6. 서류 파이프라인 Master
 # ==========================================
 if menu == "서류 파이프라인 Master":
-    pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
-    is_outbound = "매출" in pipeline_dir
-    
     doc_type_opts = ["Quotation", "Purchase Order", "Invoice", "Delivery Note", "Service Report", "Credit Note"] if is_outbound else ["Inquiry / RFQ", "Supplier Quote", "Purchase Order", "Supplier Invoice"]
     doc_type = st.sidebar.selectbox("📋 서류 유형 선택", doc_type_opts)
     
@@ -1392,7 +1458,6 @@ if menu == "서류 파이프라인 Master":
             save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
             st.session_state['doc_items'] = recalculate_items_df(save_edited_df, currency=curr_currency)
 
-            # 실시간 작성 내역 파일 자동 임시저장
             save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
 
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
@@ -1454,7 +1519,7 @@ if menu == "서류 파이프라인 Master":
             try:
                 realtime_pdf_bytes = generate_pdf(preview_ctx)
                 
-                # 🎯 [매입 서류 미리보기 파일명 특수문자 슬래시(/) 정제 로직 - Errno 2 완전 차단]
+                # 🎯 [매입 서류 슬래시(/) 정제 - Errno 2 완전 차단]
                 safe_doc_filename = re.sub(r'[\\/*?:"<>|]', '_', clean_str(doc_type))
                 file_n = f"{safe_doc_filename}_{our_ref or your_ref or 'Draft'}.pdf"
                 
