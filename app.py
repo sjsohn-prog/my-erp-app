@@ -18,7 +18,7 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 import pymupdf  # fitz API 경고 방지용 최신 PyMuPDF
 
 # ==========================================
-# C-Library (WeasyPrint) 안전 예외 처리
+# C-Library (WeasyPrint) 및 구글 시트 예외 처리
 # ==========================================
 HAS_WEASYPRINT = True
 try:
@@ -26,7 +26,6 @@ try:
 except Exception:
     HAS_WEASYPRINT = False
 
-# 구글 시트 연동 라이브러리 예외 처리
 try:
     import gspread
     from google.oauth2.service_account import Credentials
@@ -34,12 +33,13 @@ try:
 except ImportError:
     HAS_GSPREAD = False
 
-# 스레드 동시성 파일 제어용 락(Lock) 객체
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 보안 비밀번호 및 환경 설정 함수 (최상단 배치)
+# 0. 최상단 환경 설정 및 세션 상태 일괄 초기화 (KeyError 완전 방지)
 # ==========================================
+st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
+
 def get_secret(key, default=""):
     try:
         if key in st.secrets: return st.secrets[key]
@@ -63,45 +63,20 @@ gemini_key = load_saved_key()
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "admin0915")
 SAVE_PASSWORD = get_secret("SAVE_PASSWORD", "0915")
 
-FLAG_OPTIONS = [
-    "Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", 
-    "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"
-]
-
-CLASS_OPTIONS = [
-    "ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", 
-    "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"
-]
-
-CURRENCY_OPTIONS = [
-    "KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"
-]
-
-STATUS_OPTIONS = [
-    "🟡 Quoted", "🔵 PO Received", "🟣 Invoiced", "🟢 Paid", "🔴 Cancelled", "⚪ Draft"
-]
+FLAG_OPTIONS = ["Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
+CLASS_OPTIONS = ["ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"]
+CURRENCY_OPTIONS = ["KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"]
+STATUS_OPTIONS = ["🟡 Quoted", "🔵 PO Received", "🟣 Invoiced", "🟢 Paid", "🔴 Cancelled", "⚪ Draft"]
 
 GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
-doc_db_cols = [
-    "IssueDate", "DocDate", "DocType", "OurRef", "YourRef", 
-    "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"
-]
-
-item_master_cols = [
-    "ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
-]
-
-partner_db_cols = [
-    "PartnerName", "PartnerType", "PIC", "Email", "Phone", "DefaultPayment", "DefaultValidity", "Remarks"
-]
-
-vessel_db_cols = [
-    "ShipName", "IMONo", "Flag", "Class", "Owner", "Remarks"
-]
+doc_db_cols = ["IssueDate", "DocDate", "DocType", "OurRef", "YourRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"]
+item_master_cols = ["ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"]
+partner_db_cols = ["PartnerName", "PartnerType", "PIC", "Email", "Phone", "DefaultPayment", "DefaultValidity", "Remarks"]
+vessel_db_cols = ["ShipName", "IMONo", "Flag", "Class", "Owner", "Remarks"]
 
 OUR_DB_FILE = "our_db.csv"
 CUSTOMER_DB_FILE = "customer_db.csv"
@@ -114,6 +89,25 @@ INPUT_DOCS_DIR = "input_docs"
 
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
+
+# 🎯 [핵심] 로그인 전 모든 세션 상태 안전 초기화
+if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
+if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
+if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
+if 'draft_loaded_for_user' not in st.session_state: st.session_state['draft_loaded_for_user'] = None
+if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
+
+if 'bg_task' not in st.session_state:
+    st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
+
+if 'doc_info' not in st.session_state:
+    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+
+if 'doc_items' not in st.session_state:
+    st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+
+if 'visible_cols' not in st.session_state:
+    st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
 # 0-1. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
@@ -443,7 +437,7 @@ def t(key, **kwargs):
     return text.format(**kwargs) if kwargs else text
 
 # ==========================================
-# 0-5. 구글 OAuth 로그인
+# 0-5. 구글 OAuth 로그인 및 예외 보완
 # ==========================================
 def get_google_auth_url():
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI: return None
@@ -471,80 +465,14 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. 페이지 설정 & CSS
+# 1. UI 인증 및 레이아웃 제어
 # ==========================================
-st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
-
-if 'lang' not in st.session_state: st.session_state['lang'] = 'KR'
-
-custom_css = """
-<style>
-    .main .block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
-    
-    div[data-testid="stRadio"]:has(input[aria-label="Language"]),
-    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) {
-        position: fixed !important; top: 10px !important; right: 175px !important;
-        z-index: 999999 !important; background: rgba(15, 23, 42, 0.9) !important;
-        border: 1px solid #0284C7 !important; padding: 2px 10px !important;
-        border-radius: 18px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
-    }
-    div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
-    div[data-testid="stRadio"]:has(input[value="🇰🇷"]) > div { flex-direction: row !important; gap: 10px !important; }
-
-    div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
-    div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
-    div[data-testid="stFileUploaderDropzone"] + div button { display: none !important; }
-
-    .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-    .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
-    .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
-    .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
-    
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--secondary-background-color) !important;
-        border: 2px solid #0284C7 !important; border-radius: 12px !important;
-        padding: 16px !important; margin-bottom: 16px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-    }
-
-    div[data-testid="stExpander"] {
-        border: 2px solid #00F0FF !important; border-radius: 12px !important;
-        background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(29, 78, 216, 0.12) 100%) !important;
-        box-shadow: 0 0 15px rgba(0, 240, 255, 0.35) !important; margin-bottom: 20px !important; transition: all 0.3s ease;
-    }
-    div[data-testid="stExpander"]:hover { box-shadow: 0 0 22px rgba(0, 240, 255, 0.6) !important; border-color: #38BDF8 !important; }
-    div[data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 800 !important; color: #00F0FF !important; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important; }
-
-    div[data-baseweb="select"] div, div[data-baseweb="input"] input { color: #CBD5E1 !important; font-weight: 500 !important; }
-    div[data-baseweb="select"] { border-radius: 8px !important; }
-
-    .stButton > button, .google-btn { 
-        display: inline-flex !important; align-items: center !important; justify-content: center !important;
-        width: 100% !important; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
-        color: #FFFFFF !important; font-weight: 700 !important; border: none !important; 
-        padding: 8px 16px !important; border-radius: 8px !important; font-size: 0.95rem !important; 
-        text-decoration: none !important; box-sizing: border-box !important; height: 42px !important; margin-bottom: 12px !important;
-    }
-    .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
-    .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
-</style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
-
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
 
 if target_lang_code != st.session_state['lang']:
     st.session_state['lang'] = target_lang_code
     st.rerun()
-
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
-    st.session_state['user_email'] = ""
 
 try: code_param = st.query_params.get("code", None)
 except Exception: code_param = None
@@ -599,49 +527,284 @@ if user_email_key and st.session_state.get('draft_loaded_for_user') != user_emai
         st.toast(f"🎉 '{user_email_key}' 계정의 마지막 작성 내역이 복원되었습니다.", icon="💾")
     st.session_state['draft_loaded_for_user'] = user_email_key
 
-if 'doc_info' not in st.session_state:
-    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
-
-if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
-
-if 'visible_cols' not in st.session_state:
-    st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
-
 # ==========================================
-# 4. AI 파싱 엔진
+# 2. 내장형 PDF HTML 템플릿
 # ==========================================
-def get_ai_response(api_key, content_list, mode="flash"):
-    if not api_key or not str(api_key).strip(): 
-        raise Exception("Gemini API Key가 누락되었습니다.")
-    genai.configure(api_key=api_key.strip())
+INLINE_HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+    @page { 
+        size: A4; margin-top: 32mm; margin-bottom: 12mm; margin-left: 8mm; margin-right: 8mm;
+        @bottom-center { content: counter(page) " / " counter(pages); font-size: 8.5pt; color: #333; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
+    }
+    body { font-family: 'Malgun Gothic', '맑은 고딕', 'Noto Sans KR', sans-serif; font-size: 8.5pt; line-height: 1.2; color: #000; }
+    div.header-repeat { position: fixed; top: -25mm; left: 0; right: 0; width: 100%; border-bottom: 2.5px solid #000; padding-bottom: 4px; }
+    .header-table { width: 100%; border-collapse: collapse; border: none !important; margin: 0 !important; }
+    .header-table td { border: none !important; padding: 0 !important; vertical-align: bottom; }
+    .doc-title-text { font-size: 22pt; font-weight: 800; text-align: right; letter-spacing: 1.5px; text-transform: uppercase; color: #0F172A; text-decoration: underline; }
+    table.hdr-table { width: 100%; border-collapse: collapse; margin-top: 0px; margin-bottom: 3px; }
+    table.hdr-table th, table.hdr-table td { border: 0.9px solid #000 !important; padding: 3px 5px; vertical-align: middle; }
+    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 3px; page-break-inside: auto; }
+    table.data-table thead { display: table-header-group; }
+    table.data-table tbody { display: table-row-group; }
+    table.data-table tr { border: 0.9px solid #000; page-break-inside: avoid !important; break-inside: avoid !important; }
+    table.data-table th, table.data-table td { border: 0.9px solid #000; padding: 3px 5px; vertical-align: middle; }
+    .hdr-label { width: 16%; font-weight: bold; font-size: 8.5pt; background-color: #f4f4f4; }
+    .hdr-value { width: 34%; font-size: 8.5pt; }
+    .currency { text-align: right; font-weight: bold; font-style: italic; margin-bottom: 2px; font-size: 8.5pt; }
+    .item-th { font-weight: bold; text-align: center; background-color: #f4f4f4; font-size: 8.5pt; }
+    .col-no { width: 5%; text-align: center; }
+    .col-desc { width: 55%; white-space: pre-line; word-break: break-word; }
+    .col-qty { width: 8%; text-align: center; }
+    .col-price { width: 16%; text-align: right !important; }
+    .col-amt { width: 16%; text-align: right !important; }
+    .total-row-td { border: 0.9px solid #000; font-weight: bold; font-size: 10pt; padding: 4px 6px; }
+</style>
+</head>
+<body>
+    <div class="header-repeat">
+        <table class="header-table">
+            <tr>
+                <td style="text-align: left; width: 50%; vertical-align: bottom;">
+                    {% if logo_base64 %}
+                    <img src="data:image/png;base64,{{ logo_base64 }}" style="max-height: 58px;" />
+                    {% else %}
+                    <span style="font-size: 18pt; font-weight: 800; color: #0284C7; font-family: sans-serif;">ONE SOLUTION CO., LTD.</span>
+                    {% endif %}
+                </td>
+                <td style="text-align: right; width: 50%; vertical-align: bottom;">
+                    <div class="doc-title-text">{{ doc_title }}</div>
+                </td>
+            </tr>
+        </table>
+        
+        <div style="text-align: center; margin-top: 6px; font-size: 7.5pt; font-style: italic; line-height: 1.25; color: #000;">
+            Address: Room #502, GlobalStar Bldg., 3-8, Jungang-daero 226beon-gil, Dong-gu, Busan 48733, Republic of Korea<br>
+            TEL: +82-51-715-1213 / FAX: +82-51-715-1214 / Email: sales@1solution.co.kr, tech@1solution.co.kr
+        </div>
+    </div>
+
+    <table class="hdr-table">
+        <tr>
+            <td class="hdr-label">To</td><td class="hdr-value">{{ to_name }}</td>
+            <td class="hdr-label">PIC</td><td class="hdr-value">{{ pic }}</td>
+        </tr>
+        <tr>
+            <td class="hdr-label">Attention</td><td class="hdr-value">{{ attn_name }}</td>
+            <td class="hdr-label">Date</td><td class="hdr-value">{{ date_str }}</td>
+        </tr>
+        <tr>
+            <td class="hdr-label">Your Ref. No.</td><td class="hdr-value">{{ your_ref }}</td>
+            <td class="hdr-label">Our Ref. No.</td><td class="hdr-value">{{ our_ref }}</td>
+        </tr>
+        <tr>
+            <td class="hdr-label">Ship's Name</td><td class="hdr-value">{{ ship_name }}</td>
+            <td class="hdr-label">Validity</td><td class="hdr-value">{{ validity }}</td>
+        </tr>
+        <tr>
+            <td class="hdr-label">Flag / Class</td><td class="hdr-value">{{ flag_class }}</td>
+            <td class="hdr-label">Payment Due</td><td class="hdr-value">{{ payment_due }}</td>
+        </tr>
+        <tr>
+            <td class="hdr-label">Project Title</td><td class="hdr-value" colspan="3">{{ project_title }}</td>
+        </tr>
+    </table>
+
+    <div class="currency">Currency: {{ currency }}</div>
     
-    primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
-    candidate_models = [primary_model] if primary_model == "gemini-3.6-flash" else [primary_model, "gemini-3.6-flash"]
+    <table class="data-table">
+        <thead>
+            <tr>
+                <td class="item-th col-no">No.</td>
+                <td class="item-th col-desc">Description (Item Name / Part No. / Model)</td>
+                <td class="item-th col-qty">Q'ty</td>
+                <td class="item-th col-price" style="text-align: right;">Unit Price</td>
+                <td class="item-th col-amt" style="text-align: right;">Amount</td>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="col-no">{{ loop.index }}</td>
+                <td class="col-desc">
+                    {% if item.ItemName %}
+                        <strong>{{ item.ItemName }}</strong>{% if item.PartNo %} ({{ item.PartNo }}){% endif %}<br>
+                    {% elif item.PartNo %}
+                        <strong>Part No: {{ item.PartNo }}</strong><br>
+                    {% endif %}
+                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}
+                    {% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>[Deviations/Note: {{ item.Remarks | replace('\n', '<br>') }}]</em></span>{% endif %}
+                </td>
+                <td class="col-qty">{{ item.Qty }}</td>
+                <td class="col-price" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
+                <td class="col-amt" style="text-align: right;">{{ item.AmountFormatted }}</td>
+            </tr>
+            {% endfor %}
+            {% if bottom_remarks %}
+            <tr>
+                <td colspan="5" style="border: 0.9px solid #000; padding: 4px 6px; font-size: 8.5pt; white-space: pre-line; font-style: italic; background-color: #fafafa;">
+                    <strong><em>[Remarks & Deviations]</em></strong><br>{{ bottom_remarks | replace('\n', '<br>') }}
+                </td>
+            </tr>
+            {% endif %}
+            {% if total_amount_str %}
+            <tr>
+                <td colspan="3" class="total-row-td" style="border-right: none;"></td>
+                <td class="total-row-td" style="text-align: center; background-color: #f4f4f4; border-left: 0.9px solid #000;">Total Amount</td>
+                <td class="total-row-td" style="text-align: right; font-size: 11pt; font-weight: bold;">{{ total_amount_str }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
 
-    last_err = None
-    for model_name in candidate_models:
-        for attempt in range(2):
-            try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(content_list)
-                if response and response.text:
-                    res_text = response.text.strip()
-                    res_text = re.sub(r'```(?:json)?', '', res_text).replace('```', '').strip()
-                    
-                    s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
-                    e_idx = res_text.rfind(']') if ']' in res_text and (res_text.rfind(']') > res_text.rfind('}') or '}' not in res_text) else res_text.rfind('}')
-                    if s_idx != -1 and e_idx != -1: 
-                        res_text = res_text[s_idx:e_idx + 1]
-                    return json.loads(res_text)
-            except Exception as e:
-                last_err = e
-                if ("429" in str(e) or "Quota" in str(e)) and attempt == 0:
-                    time.sleep(10)
-                    continue
-                break
+    {% if vat_note %}
+    <div style="text-align: right; font-size: 8pt; font-weight: bold; margin-bottom: 2px;">{{ vat_note }}</div>
+    {% endif %}
+</body>
+</html>
+"""
 
-    raise Exception(f"Gemini API 요청 실패: {last_err}")
+# ==========================================
+# 3. 데이터 정제 및 동기화 도구
+# ==========================================
+def recalculate_items_df(df, currency="KRW"):
+    if df is None or df.empty: return df
+    df = df.copy()
+    sym = get_currency_symbol(currency)
+    
+    cols_order = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+    for c in cols_order:
+        if c not in df.columns: df[c] = ""
+        
+    df = df[cols_order]
+
+    for idx in df.index:
+        qty = safe_float(df.at[idx, 'Qty'])
+        u_price = safe_float(df.at[idx, 'UnitPrice'])
+        curr_amt = safe_float(df.at[idx, 'Amount'])
+
+        if qty > 0 and u_price >= 0:
+            calc_amt = qty * u_price
+            fmt_amt = f"{calc_amt:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_amt:,.2f}"
+            df.at[idx, 'Amount'] = f"{sym}{fmt_amt}" if sym else fmt_amt
+            
+            fmt_up = f"{u_price:,.0f}" if currency in ["KRW", "JPY"] else f"{u_price:,.2f}"
+            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
+        elif qty > 0 and curr_amt > 0 and u_price == 0:
+            calc_up = curr_amt / qty
+            fmt_up = f"{calc_up:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_up:,.2f}"
+            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
+
+    return df
+
+def prepare_items_for_pdf(items_list, currency="KRW"):
+    sym = get_currency_symbol(currency)
+    formatted_items = []
+    
+    valid_items = []
+    for item in items_list:
+        iname, desc, pno = clean_str(item.get('ItemName', '')), clean_str(item.get('Description', '')), clean_str(item.get('PartNo', ''))
+        qty_raw, u_p_val, amt_val, rem = clean_str(item.get('Qty', '')), safe_float(item.get('UnitPrice', 0)), safe_float(item.get('Amount', 0)), clean_str(item.get('Remarks', ''))
+        if any([iname, desc, pno, qty_raw, u_p_val > 0, amt_val > 0, rem]):
+            valid_items.append(item)
+
+    for item in valid_items:
+        item_copy = dict(item)
+        item_copy['ItemName'] = clean_str(item_copy.get('ItemName', ''))
+        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', ''))
+        item_copy['Description'] = clean_str(item_copy.get('Description', ''))
+        item_copy['Remarks'] = clean_str(item_copy.get('Remarks', ''))
+        
+        qty_raw = item_copy.get('Qty', '')
+        q_val = safe_float(qty_raw, default=None)
+        item_copy['Qty'] = f"{int(q_val)}" if q_val is not None and q_val == int(q_val) else str(qty_raw or '')
+
+        u_p_val = safe_float(item_copy.get('UnitPrice', 0))
+        amt_val = safe_float(item_copy.get('Amount', 0))
+            
+        fmt_up = f"{u_p_val:,.0f}" if currency in ["KRW", "JPY"] else f"{u_p_val:,.2f}"
+        fmt_amt = f"{amt_val:,.0f}" if currency in ["KRW", "JPY"] else f"{amt_val:,.2f}"
+
+        item_copy['UnitPriceFormatted'] = f"{sym}{fmt_up}" if u_p_val > 0 else ""
+        item_copy['AmountFormatted'] = f"{sym}{fmt_amt}" if amt_val > 0 else ("" if amt_val == 0 and u_p_val == 0 else f"{sym}0")
+        formatted_items.append(item_copy)
+    return formatted_items
+
+is_running = (st.session_state['bg_task']['status'] == 'running')
+
+def _sync_local_cache(df, filepath, default_cols):
+    cleaned_df = ensure_cols(clean_df(df), default_cols)
+    with file_access_lock:
+        cleaned_df.to_csv(filepath, index=False)
+
+our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
+_sync_local_cache(our_db_init, OUR_DB_FILE, doc_db_cols)
+
+customer_db_init = ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols)
+_sync_local_cache(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
+
+item_master_init = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
+_sync_local_cache(item_master_init, ITEM_MASTER_FILE, item_master_cols)
+
+partner_db_init = ensure_cols(safe_read_csv(PARTNER_DB_FILE, partner_db_cols), partner_db_cols)
+_sync_local_cache(partner_db_init, PARTNER_DB_FILE, partner_db_cols)
+
+vessel_db_init = ensure_cols(safe_read_csv(VESSEL_DB_FILE, vessel_db_cols), vessel_db_cols)
+_sync_local_cache(vessel_db_init, VESSEL_DB_FILE, vessel_db_cols)
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f: return json.load(f)
+    return {"ships": [], "to_list": [], "attns": []}
+
+def save_history(ship, to, attn):
+    data = load_history()
+    updated = False
+    for key, val in [("ships", ship), ("to_list", to), ("attns", attn)]:
+        if val and val.strip() and val not in data[key]:
+            data[key].append(val.strip())
+            updated = True
+    if updated:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, target_name, doc_date_str, currency, total_amount, item_count, user_email=""):
+    df = ensure_cols(safe_read_csv(target_db_file, doc_db_cols), doc_db_cols)
+    issue_date_str = get_kst_now().strftime("%Y-%m-%d %H:%M")
+    logged_user = user_email or st.session_state.get('user_email', 'Unknown')
+    default_status = "🔵 PO Received" if doc_type == "Purchase Order" else ("🟣 Invoiced" if doc_type == "Invoice" else "🟡 Quoted")
+
+    new_entry = pd.DataFrame([{
+        "IssueDate": issue_date_str, "DocDate": doc_date_str or "-", "DocType": doc_type,
+        "OurRef": our_ref or "-", "YourRef": your_ref or "-", "ShipName": ship_name or "-",
+        "TargetName": target_name or "-", "Currency": currency or "-", "TotalAmount": total_amount,
+        "ItemCount": item_count, "CreatedBy": logged_user, "Status": default_status
+    }])
+
+    safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
+
+def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW"):
+    if items_df is None or items_df.empty: return 0
+    master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
+    
+    new_rows = []
+    for _, row in items_df.iterrows():
+        pno, iname, desc, u_price, rem = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', '')), safe_float(row.get('UnitPrice', 0)), clean_str(row.get('Remarks', ''))
+        if pno or iname or desc:
+            new_rows.append({"ItemName": iname, "PartNo": pno, "Description": desc, "Supplier": supplier_name, "BuyPrice": 0.0, "ListPrice": u_price, "Currency": currency, "Remarks": rem})
+            
+    if new_rows:
+        safe_save_csv(pd.concat([master_df, pd.DataFrame(new_rows)], ignore_index=True), ITEM_MASTER_FILE, item_master_cols)
+        return len(new_rows)
+    return 0
+
+def safe_merge_db(existing_db, new_data_df, cols):
+    if new_data_df is None or new_data_df.empty: return existing_db
+    return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
@@ -959,7 +1122,6 @@ if menu == "서류 파이프라인 Master":
     
     st.markdown(f"""<div class="main-header"><h1>{t('doc_gen_title')} - {pipeline_dir.split()[1]} ({doc_type})</h1><p>{t('doc_gen_desc')}</p></div>""", unsafe_allow_html=True)
 
-    # 🎯 [시각적 자동 임시저장 상태 안내 바]
     curr_user_mail = st.session_state.get('user_email', 'Unknown')
     st.caption(f"💾 **실시간 자동 임시저장 활성화** (계정: `{curr_user_mail}` | 페이지 재접속/로그인 시 100% 자동으로 이전 작성 내역 복원)")
 
@@ -1230,6 +1392,7 @@ if menu == "서류 파이프라인 Master":
             save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
             st.session_state['doc_items'] = recalculate_items_df(save_edited_df, currency=curr_currency)
 
+            # 실시간 작성 내역 파일 자동 임시저장
             save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
 
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
@@ -1291,7 +1454,7 @@ if menu == "서류 파이프라인 Master":
             try:
                 realtime_pdf_bytes = generate_pdf(preview_ctx)
                 
-                # 🎯 [매입 서류 미리보기 파일명 특수문자 정제 - Errno 2 완전 차단]
+                # 🎯 [매입 서류 미리보기 파일명 특수문자 슬래시(/) 정제 로직 - Errno 2 완전 차단]
                 safe_doc_filename = re.sub(r'[\\/*?:"<>|]', '_', clean_str(doc_type))
                 file_n = f"{safe_doc_filename}_{our_ref or your_ref or 'Draft'}.pdf"
                 
@@ -1472,8 +1635,6 @@ elif menu == "통합 DB 마스터":
 # ==========================================
 elif menu == "관리자 메뉴":
     st.markdown("""<div class="main-header"><h1>🛠️ 관리자 통합 전용 메뉴 (Admin Control)</h1><p>DB 데이터 수정/삭제 및 시스템 저장소/대장 초기화를 수행합니다.</p></div>""", unsafe_allow_html=True)
-
-    if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
 
     if not st.session_state['admin_unlocked']:
         with st.container(border=True):
