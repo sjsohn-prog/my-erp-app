@@ -36,64 +36,163 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 페이지 설정 & 최상단 CSS (로그인 화면 및 디자인 보존)
+# 0. 페이지 설정 & 최상단 CSS (미래지향 네온 하이테크 스킨)
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
 custom_css = """
 <style>
-    .main .block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important;
+    }
     
+    .stApp {
+        background: radial-gradient(circle at 15% 15%, rgba(15, 23, 42, 0.95) 0%, rgba(8, 11, 17, 1) 100%) !important;
+        color: #F1F5F9 !important;
+    }
+
+    .main .block-container { 
+        padding-top: 1.2rem !important; 
+        padding-bottom: 1rem !important; 
+    }
+
+    /* 상단 언어 선택 라디오 위치 고정 */
     div[data-testid="stRadio"]:has(input[aria-label="Language"]),
     div[data-testid="stRadio"]:has(input[value="🇰🇷"]) {
-        position: fixed !important; top: 10px !important; right: 175px !important;
-        z-index: 999999 !important; background: rgba(15, 23, 42, 0.9) !important;
-        border: 1px solid #0284C7 !important; padding: 2px 10px !important;
-        border-radius: 18px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+        position: fixed !important; top: 12px !important; right: 175px !important;
+        z-index: 999999 !important; 
+        background: rgba(11, 15, 25, 0.85) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(0, 240, 255, 0.4) !important; 
+        padding: 3px 12px !important;
+        border-radius: 20px !important; 
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.25) !important;
     }
     div[data-testid="stRadio"]:has(input[aria-label="Language"]) > div,
     div[data-testid="stRadio"]:has(input[value="🇰🇷"]) > div { flex-direction: row !important; gap: 10px !important; }
 
-    div[data-testid="stFileUploader"] button[data-testid="stBaseButton-icon"],
-    div[data-testid="stFileUploader"] button:has(svg[aria-label="Add"]),
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] + button,
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileData"] + button,
-    div[data-testid="stFileUploaderDropzone"] + div button { display: none !important; }
+    /* 파이프라인 타이틀 메인 헤더 */
+    .main-header { 
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.5) 100%) !important; 
+        backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(0, 240, 255, 0.4) !important; 
+        border-left: 6px solid #00F0FF !important; 
+        padding: 18px 24px !important; 
+        border-radius: 14px !important; 
+        margin-bottom: 22px !important; 
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37), 0 0 20px rgba(0, 240, 255, 0.15) !important; 
+    }
+    .main-header h1 { color: #FFFFFF !important; font-size: 1.6rem !important; font-weight: 800 !important; margin: 0 !important; letter-spacing: -0.5px; }
+    .main-header p { color: #94A3B8 !important; margin: 6px 0 0 0 !important; font-size: 0.88rem !important; font-weight: 500 !important; }
 
-    .main-header { background: var(--secondary-background-color); border: 2px solid #0284C7; border-left: 6px solid #0284C7; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-    .main-header h1 { color: var(--text-color); font-size: 1.5rem; font-weight: 800; margin: 0; }
-    .main-header p { color: var(--text-color); opacity: 0.85; margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 500; }
-    .section-title { color: #0284C7; font-size: 1.05rem; font-weight: 800; margin-bottom: 12px; }
-    
+    .section-title { 
+        color: #00F0FF !important; 
+        font-size: 1.08rem !important; 
+        font-weight: 800 !important; 
+        margin-bottom: 12px !important; 
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.4) !important;
+        display: flex; align-items: center; gap: 6px;
+    }
+
+    /* 카드 컨테이너 글래스모피즘 스킨 */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: var(--secondary-background-color) !important;
-        border: 2px solid #0284C7 !important; border-radius: 12px !important;
-        padding: 16px !important; margin-bottom: 16px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        background: rgba(15, 23, 42, 0.6) !important;
+        backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(56, 189, 248, 0.25) !important; 
+        border-radius: 14px !important;
+        padding: 18px !important; 
+        margin-bottom: 18px !important; 
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25), inset 0 0 12px rgba(0, 240, 255, 0.05) !important;
+        transition: border-color 0.3s ease;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: rgba(0, 240, 255, 0.5) !important;
     }
 
+    /* AI 분석 펼치기 박스 네온 스타일 */
     div[data-testid="stExpander"] {
-        border: 2px solid #00F0FF !important; border-radius: 12px !important;
-        background: linear-gradient(135deg, rgba(0, 240, 255, 0.08) 0%, rgba(29, 78, 216, 0.12) 100%) !important;
-        box-shadow: 0 0 15px rgba(0, 240, 255, 0.35) !important; margin-bottom: 20px !important; transition: all 0.3s ease;
+        border: 1.5px solid #00F0FF !important; 
+        border-radius: 14px !important;
+        background: linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(37, 99, 235, 0.1) 100%) !important;
+        backdrop-filter: blur(10px) !important;
+        box-shadow: 0 0 18px rgba(0, 240, 255, 0.25) !important; 
+        margin-bottom: 22px !important; 
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    div[data-testid="stExpander"]:hover { box-shadow: 0 0 22px rgba(0, 240, 255, 0.6) !important; border-color: #38BDF8 !important; }
-    div[data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 800 !important; color: #00F0FF !important; text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important; }
+    div[data-testid="stExpander"]:hover { 
+        box-shadow: 0 0 28px rgba(0, 240, 255, 0.45) !important; 
+        border-color: #38BDF8 !important; 
+        transform: translateY(-1px);
+    }
+    div[data-testid="stExpander"] summary p { 
+        font-size: 1.1rem !important; 
+        font-weight: 800 !important; 
+        color: #00F0FF !important; 
+        text-shadow: 0 0 12px rgba(0, 240, 255, 0.6) !important; 
+    }
 
-    div[data-baseweb="select"] div, div[data-baseweb="input"] input { color: #CBD5E1 !important; font-weight: 500 !important; }
-    div[data-baseweb="select"] { border-radius: 8px !important; }
+    /* 인풋 박스 및 셀렉트 박스 */
+    div[data-baseweb="select"] div, div[data-baseweb="input"] input, textarea { 
+        color: #F8FAFC !important; 
+        font-weight: 500 !important;
+        background: rgba(15, 23, 42, 0.7) !important;
+        border-color: rgba(56, 189, 248, 0.3) !important;
+    }
+    div[data-baseweb="select"] { border-radius: 10px !important; }
+    div[data-baseweb="input"] { border-radius: 10px !important; }
 
+    /* 메인 버튼 스타일링 (Hover Glowing) */
     .stButton > button, .google-btn { 
         display: inline-flex !important; align-items: center !important; justify-content: center !important;
-        width: 100% !important; background: linear-gradient(135deg, #1D4ED8 0%, #0284C7 100%) !important; 
-        color: #FFFFFF !important; font-weight: 700 !important; border: none !important; 
-        padding: 8px 16px !important; border-radius: 8px !important; font-size: 0.95rem !important; 
-        text-decoration: none !important; box-sizing: border-box !important; height: 42px !important; margin-bottom: 12px !important;
+        width: 100% !important; 
+        background: linear-gradient(135deg, #2563EB 0%, #0284C7 50%, #00F0FF 100%) !important; 
+        color: #FFFFFF !important; font-weight: 800 !important; border: none !important; 
+        padding: 8px 16px !important; border-radius: 10px !important; font-size: 0.95rem !important; 
+        text-decoration: none !important; box-sizing: border-box !important; height: 44px !important; 
+        margin-bottom: 12px !important;
+        box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4) !important;
+        transition: all 0.25s ease !important;
     }
-    .google-btn:hover { opacity: 0.9 !important; color: #FFFFFF !important; }
-    .loader-container { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); border: 2px solid #0284C7; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    .spinner { border: 4px solid rgba(2, 132, 199, 0.2); border-top: 4px solid #0284C7; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-right: 12px; }
+    .stButton > button:hover, .google-btn:hover { 
+        opacity: 0.95 !important; 
+        color: #FFFFFF !important; 
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 22px rgba(0, 240, 255, 0.65) !important;
+    }
+
+    /* 탭 헤더 하이테크 변환 */
+    button[data-baseweb="tab"] {
+        color: #94A3B8 !important;
+        font-weight: 700 !important;
+        padding: 10px 20px !important;
+        border-radius: 8px 8px 0 0 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #00F0FF !important;
+        border-bottom-color: #00F0FF !important;
+        background: rgba(0, 240, 255, 0.08) !important;
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
+    }
+
+    /* 데이터 대장 메트릭 카드 시각화 */
+    div[data-testid="stMetric"] {
+        background: rgba(15, 23, 42, 0.8) !important;
+        border: 1px solid rgba(0, 240, 255, 0.25) !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.05) !important;
+    }
+    div[data-testid="stMetricLabel"] { font-size: 0.82rem !important; color: #94A3B8 !important; font-weight: 600 !important; }
+    div[data-testid="stMetricValue"] { font-size: 1.35rem !important; color: #00F0FF !important; font-weight: 800 !important; font-family: 'JetBrains Mono', monospace !important; }
+
+    /* 로더 디스플레이 */
+    .loader-container { display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.85); border: 2px solid #00F0FF; border-radius: 14px; padding: 18px; margin-bottom: 18px; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3); }
+    .spinner { border: 4px solid rgba(0, 240, 255, 0.2); border-top: 4px solid #00F0FF; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin-right: 14px; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .loader-text { color: var(--text-color); font-weight: 700; font-size: 1rem; }
+    .loader-text { color: #F8FAFC; font-weight: 700; font-size: 1.02rem; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -161,7 +260,7 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'draft_loaded_for_user' not in st.session_state: st.session_state['draft_loaded_for_user'] = None
 if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
 
-# [F5 새로고침 복원] 최상단에서 URL 토큰 읽어 자동 로그인 세션 유지
+# [F5 새로고침 복원] 스크립트 실행 직후 URL 토큰 검증하여 자동 로그인 100% 복원
 if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
     try:
         decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
@@ -557,7 +656,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 로직 (예외 명확화 및 URL 토큰 완벽 연동)
+# 1. UI 인증 로직
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -602,8 +701,7 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # 구글 보안 정책을 준수하는 유일하고 안전한 새 탭 인증 방식
-                st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
@@ -1576,7 +1674,7 @@ elif menu == "통합 DB 마스터":
             c_m3.metric("🟣 Invoiced (청구)", f"{status_counts.get('🟣 Invoiced', 0)} 건")
             c_m4.metric("🟢 Paid (입금완료)", f"{status_counts.get('🟢 Paid', 0)} 건")
             c_m5.metric("🔴 Cancelled (취소)", f"{status_counts.get('🔴 Cancelled', 0)} 건")
-            st.markdown("<hr style='margin: 12px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='margin: 12px 0; border-color: rgba(0, 240, 255, 0.2);'>", unsafe_allow_html=True)
 
             if not db_df.empty:
                 f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
