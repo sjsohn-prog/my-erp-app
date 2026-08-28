@@ -78,15 +78,50 @@ doc_db_cols = [
 ]
 
 item_master_cols = [
-    "PartNo", "ItemName", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
+    "ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"
 ]
 
 OUR_DB_FILE = "our_db.csv"
 CUSTOMER_DB_FILE = "customer_db.csv"
 ITEM_MASTER_FILE = "item_master.csv"
+DRAFTS_FILE = "user_drafts.json"
 
 # ==========================================
-# 0-1. 최상단 공통 헬퍼 함수 & 시간대 & 실시간 환율 & 구글 시트 연동
+# 0-1. 계정별 임시저장(Draft) 및 세션 복원 함수
+# ==========================================
+def load_user_draft(user_email):
+    if not user_email or not os.path.exists(DRAFTS_FILE): return None
+    try:
+        with file_access_lock:
+            with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get(user_email)
+    except Exception: return None
+
+def save_user_draft(user_email, doc_info, doc_items, visible_cols=None):
+    if not user_email: return
+    try:
+        with file_access_lock:
+            data = {}
+            if os.path.exists(DRAFTS_FILE):
+                try:
+                    with open(DRAFTS_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception: data = {}
+            
+            items_dict = doc_items.to_dict(orient="records") if isinstance(doc_items, pd.DataFrame) else doc_items
+            data[user_email] = {
+                "doc_info": doc_info,
+                "doc_items": items_dict,
+                "visible_cols": visible_cols or ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"],
+                "updated_at": get_kst_now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            with open(DRAFTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception: pass
+
+# ==========================================
+# 0-2. 공통 헬퍼 함수 & 시간대 & 실시간 환율 & 구글 시트 연동
 # ==========================================
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
@@ -218,44 +253,86 @@ def safe_save_csv(df, filepath, default_cols=None):
             try: ws = sh.worksheet(sheet_title)
             except Exception: ws = sh.add_worksheet(title=sheet_title, rows="1000", cols="20")
             
-            # 동시성 파손 방지: 전체 초기화(clear) 대신 위치 기반 직접 덮어쓰기 사용
             values_to_write = [cleaned_df.columns.values.tolist()] + cleaned_df.fillna("").values.tolist()
             ws.update(values_to_write, 'A1')
         except Exception as e:
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
+# ==========================================
+# 0-3. 개선된 스마트 인풋 & 스마트 날짜 위젯 (요구사항 1, 2 반영)
+# ==========================================
 def render_unified_input(label, current_val, base_options, key_prefix):
+    """
+    [요구사항 1 반영] 기본이 직접 입력(빈칸/입력값)이며, 클릭/선택 시 추천 옵션으로 자동 채워지는 스마트 위젯
+    """
     display_label = f"▾ {label}" if not label.startswith("▾") else label
-    curr = clean_str(current_val)
-    direct_label = "✏️ 직접 입력 / Direct Input"
-    
-    options = [""]
-    if curr and curr not in options and direct_label not in curr and "직접 입력" not in curr:
-        options.append(curr)
-        
-    for item in base_options:
-        s_item = clean_str(item)
-        if s_item and s_item not in options and direct_label not in s_item and "직접 입력" not in s_item and "Choose an option" not in s_item:
-            options.append(s_item)
-            
-    options.append(direct_label)
-    
-    sel_key = f"{key_prefix}_sel"
     txt_key = f"{key_prefix}_txt"
-    
-    if sel_key not in st.session_state:
-        st.session_state[sel_key] = curr if curr in options else ""
-    elif st.session_state[sel_key] not in options:
-        options.insert(1, st.session_state[sel_key])
+    sel_key = f"{key_prefix}_sel"
 
-    selected = st.selectbox(display_label, options=options, key=sel_key)
-    if selected == direct_label:
-        return st.text_input(f"{label} ({'직접 입력' if st.session_state.get('lang') == 'KR' else 'Direct Input'})", key=txt_key)
-    else:
-        return selected
+    curr = clean_str(current_val)
+    if txt_key not in st.session_state:
+        st.session_state[txt_key] = curr
+
+    opts = ["(추천/이력 항목 선택)"] + [clean_str(x) for x in base_options if clean_str(x)]
+    opts = list(dict.fromkeys(opts))
+
+    col_txt, col_opt = st.columns([0.68, 0.32])
+    with col_opt:
+        selected_opt = st.selectbox(f"{label} 옵션", options=opts, key=sel_key, label_visibility="collapsed")
+        if selected_opt and selected_opt != "(추천/이력 항목 선택)":
+            st.session_state[txt_key] = selected_opt
+
+    with col_txt:
+        val = st.text_input(display_label, key=txt_key, label_visibility="visible")
+
+    return val
+
+def format_date_str(raw_str):
+    """
+    [요구사항 2 반영] 260828 -> 2026-08-28 또는 20260828 -> 2026-08-28 자동 포맷팅
+    """
+    s = re.sub(r'[^0-9]', '', str(raw_str))
+    if len(s) == 6:
+        return f"20{s[:2]}-{s[2:4]}-{s[4:6]}"
+    elif len(s) == 8:
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return str(raw_str)
+
+def render_date_input(label, current_val, key_prefix):
+    """
+    [요구사항 2 반영] 캘린더 달력 피커와 빠른 텍스트 포맷팅(260828 -> 2026-08-28)이 결합된 날짜 위젯
+    """
+    display_label = f"📅 {label}"
+    txt_key = f"{key_prefix}_date_txt"
+    picker_key = f"{key_prefix}_date_picker"
+
+    curr_formatted = format_date_str(clean_str(current_val))
+    if txt_key not in st.session_state or not st.session_state[txt_key]:
+        st.session_state[txt_key] = curr_formatted or get_kst_now().strftime("%Y-%m-%d")
+
+    col_txt, col_picker = st.columns([0.7, 0.3])
+    with col_picker:
+        try:
+            cur_d = datetime.strptime(st.session_state[txt_key], "%Y-%m-%d").date()
+        except Exception:
+            cur_d = get_kst_now().date()
+            
+        picked = st.date_input("달력선택", value=cur_d, key=picker_key, label_visibility="collapsed")
+        if picked:
+            picked_str = picked.strftime("%Y-%m-%d")
+            if picked_str != st.session_state[txt_key]:
+                st.session_state[txt_key] = picked_str
+
+    with col_txt:
+        user_in = st.text_input(display_label, key=txt_key)
+        formatted_in = format_date_str(user_in)
+        if formatted_in != user_in:
+            st.session_state[txt_key] = formatted_in
+
+    return st.session_state[txt_key]
 
 # ==========================================
-# 0-2. i18n 다국어 사전
+# 0-4. i18n 다국어 사전
 # ==========================================
 TRANSLATIONS = {
     "KR": {
@@ -370,7 +447,7 @@ def t(key, **kwargs):
     return text.format(**kwargs) if kwargs else text
 
 # ==========================================
-# 0-3. 구글 OAuth 로그인 필수 함수
+# 0-5. 구글 OAuth 로그인 필수 함수
 # ==========================================
 def get_google_auth_url():
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI:
@@ -569,7 +646,7 @@ if not st.session_state['authenticated']:
     st.stop()
 
 # ==========================================
-# 2. 내장형 PDF HTML 템플릿
+# 2. 내장형 PDF HTML 템플릿 ([요구사항 10] Item Name (Part No) 헤더 표시 반영)
 # ==========================================
 INLINE_HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -662,7 +739,7 @@ INLINE_HTML_TEMPLATE = """
         <thead>
             <tr>
                 <td class="item-th col-no">No.</td>
-                <td class="item-th col-desc">Description (Model, Type, Serial No.)</td>
+                <td class="item-th col-desc">Description (Item Name / Part No. / Model)</td>
                 <td class="item-th col-qty">Q'ty</td>
                 <td class="item-th col-price" style="text-align: right;">Unit Price</td>
                 <td class="item-th col-amt" style="text-align: right;">Amount</td>
@@ -672,7 +749,15 @@ INLINE_HTML_TEMPLATE = """
             {% for item in items %}
             <tr>
                 <td class="col-no">{{ loop.index }}</td>
-                <td class="col-desc">{% if item.ItemName %}<strong>{{ item.ItemName | replace('\n', '<br>') }}</strong><br>{% endif %}{% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}{% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>{{ item.Remarks | replace('\n', '<br>') }}</em></span>{% endif %}</td>
+                <td class="col-desc">
+                    {% if item.ItemName %}
+                        <strong>{{ item.ItemName }}</strong>{% if item.PartNo %} ({{ item.PartNo }}){% endif %}<br>
+                    {% elif item.PartNo %}
+                        <strong>Part No: {{ item.PartNo }}</strong><br>
+                    {% endif %}
+                    {% if item.Description and item.Description != item.ItemName %}{{ item.Description | replace('\n', '<br>') }}<br>{% endif %}
+                    {% if item.Remarks %}<span style="font-size: 8pt; color: #444;"><em>[Deviations/Note: {{ item.Remarks | replace('\n', '<br>') }}]</em></span>{% endif %}
+                </td>
                 <td class="col-qty">{{ item.Qty }}</td>
                 <td class="col-price" style="text-align: right;">{{ item.UnitPriceFormatted }}</td>
                 <td class="col-amt" style="text-align: right;">{{ item.AmountFormatted }}</td>
@@ -711,6 +796,38 @@ INPUT_DOCS_DIR = "input_docs"
 os.makedirs("output", exist_ok=True)
 os.makedirs(INPUT_DOCS_DIR, exist_ok=True)
 
+# [요구사항 9 반영] Amount 및 UnitPrice 정밀 실시간 자동 재계산 함수
+def recalculate_items_df(df, currency="KRW"):
+    if df is None or df.empty: return df
+    df = df.copy()
+    sym = get_currency_symbol(currency)
+    
+    # [요구사항 10 반영] 순서: ItemName -> PartNo
+    cols_order = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+    for c in cols_order:
+        if c not in df.columns: df[c] = ""
+        
+    df = df[cols_order]
+
+    for idx in df.index:
+        qty = safe_float(df.at[idx, 'Qty'])
+        u_price = safe_float(df.at[idx, 'UnitPrice'])
+        curr_amt = safe_float(df.at[idx, 'Amount'])
+
+        if qty > 0 and u_price >= 0:
+            calc_amt = qty * u_price
+            fmt_amt = f"{calc_amt:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_amt:,.2f}"
+            df.at[idx, 'Amount'] = f"{sym}{fmt_amt}" if sym else fmt_amt
+            
+            fmt_up = f"{u_price:,.0f}" if currency in ["KRW", "JPY"] else f"{u_price:,.2f}"
+            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
+        elif qty > 0 and curr_amt > 0 and u_price == 0:
+            calc_up = curr_amt / qty
+            fmt_up = f"{calc_up:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_up:,.2f}"
+            df.at[idx, 'UnitPrice'] = f"{sym}{fmt_up}" if sym else fmt_up
+
+    return df
+
 def prepare_items_for_pdf(items_list, currency="KRW"):
     sym = get_currency_symbol(currency)
     formatted_items = []
@@ -725,6 +842,7 @@ def prepare_items_for_pdf(items_list, currency="KRW"):
     for item in valid_items:
         item_copy = dict(item)
         item_copy['ItemName'] = clean_str(item_copy.get('ItemName', ''))
+        item_copy['PartNo'] = clean_str(item_copy.get('PartNo', ''))
         item_copy['Description'] = clean_str(item_copy.get('Description', ''))
         item_copy['Remarks'] = clean_str(item_copy.get('Remarks', ''))
         
@@ -812,7 +930,7 @@ def save_items_to_master(items_df, supplier_name="자사 서류 생성", currenc
     for _, row in items_df.iterrows():
         pno, iname, desc, u_price, rem = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', '')), safe_float(row.get('UnitPrice', 0)), clean_str(row.get('Remarks', ''))
         if pno or iname or desc:
-            new_rows.append({"PartNo": pno, "ItemName": iname, "Description": desc, "Supplier": supplier_name, "BuyPrice": 0.0, "ListPrice": u_price, "Currency": currency, "Remarks": rem})
+            new_rows.append({"ItemName": iname, "PartNo": pno, "Description": desc, "Supplier": supplier_name, "BuyPrice": 0.0, "ListPrice": u_price, "Currency": currency, "Remarks": rem})
             
     if new_rows:
         safe_save_csv(pd.concat([master_df, pd.DataFrame(new_rows)], ignore_index=True), ITEM_MASTER_FILE, item_master_cols)
@@ -823,24 +941,36 @@ def safe_merge_db(existing_db, new_data_df, cols):
     if new_data_df is None or new_data_df.empty: return existing_db
     return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
 
+# [요구사항 8 반영] 계정별 임시 저장 데이터 자동 복원
+user_email_key = st.session_state.get('user_email', '')
+user_draft = load_user_draft(user_email_key) if user_email_key else None
+
 if 'doc_info' not in st.session_state:
-    st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
+    if user_draft and "doc_info" in user_draft:
+        st.session_state['doc_info'] = user_draft["doc_info"]
+    else:
+        st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
 
 if 'doc_items' not in st.session_state:
-    st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+    if user_draft and "doc_items" in user_draft:
+        st.session_state['doc_items'] = pd.DataFrame(user_draft["doc_items"])
+    else:
+        st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+
+if 'visible_cols' not in st.session_state:
+    if user_draft and "visible_cols" in user_draft:
+        st.session_state['visible_cols'] = user_draft["visible_cols"]
+    else:
+        st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 4. AI 파싱 엔진
-# ==========================================
-# ==========================================
-# 4. AI 파싱 엔진 (Gemini 3.6 전용 지정)
+# 4. AI 파싱 엔진 (Gemini 3.6 전용 유지)
 # ==========================================
 def get_ai_response(api_key, content_list, mode="flash"):
     if not api_key or not str(api_key).strip(): 
         raise Exception("Gemini API Key가 누락되었습니다.")
     genai.configure(api_key=api_key.strip())
     
-    # 이전 대화 요구사항에 맞춰 제미나이 3.6 모델 고정 호출
     primary_model = "gemini-3.6-flash-thinking" if mode == "thinking" else "gemini-3.6-flash"
     candidate_models = [primary_model] if primary_model == "gemini-3.6-flash" else [primary_model, "gemini-3.6-flash"]
 
@@ -852,7 +982,6 @@ def get_ai_response(api_key, content_list, mode="flash"):
                 response = model.generate_content(content_list)
                 if response and response.text:
                     res_text = response.text.strip()
-                    # 마크다운 백틱 및 코드블록 제거 보완
                     res_text = re.sub(r'```(?:json)?', '', res_text).replace('```', '').strip()
                     
                     s_idx = res_text.find('[') if '[' in res_text and (res_text.find('[') < res_text.find('{') or '{' not in res_text) else res_text.find('{')
@@ -872,7 +1001,7 @@ def get_ai_response(api_key, content_list, mode="flash"):
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 문서를 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -891,21 +1020,21 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
 
         2. HEADER FIELDS ACCURACY EXTRACTION:
            - "doc_type": The original type of the uploaded document (e.g., "Invoice", "Purchase Order", "Quotation").
-           - "date_str": Document Issue Date (e.g. "2026.01.02").
+           - "date_str": Document Issue Date (e.g. "2026.08.28").
            - "validity": Quotation Validity duration (e.g. "30 Days", "14 Days").
            - "our_ref": Reference Number / Quote No. / PO No. generated by the issuing company.
            - "your_ref": Customer's / Recipient's Reference Number.
            - "to_name", "attn_name", "project_title", "flag_class", "pic", "ship_name", "payment_due", "currency".
 
         3. ITEM TABLE EXTRACTION:
-           - Parse line items into: "PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
+           - Parse line items into: "ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks".
 
         Return valid JSON EXACTLY matching this structure:
         {
             "doc_type": "", "issuer_company": "", "issuer_pic": "", "recipient_company": "", "recipient_attn": "",
             "to_name": "", "attn_name": "", "project_title": "", "validity": "", "flag_class": "",
             "our_ref": "", "date_str": "", "pic": "", "your_ref": "", "ship_name": "", "payment_due": "", "currency": "",
-            "items": [{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}]
+            "items": [{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}]
         }
         """
         if file_ext in ['png', 'jpg', 'jpeg']: content = Image.open(io.BytesIO(file_bytes))
@@ -930,7 +1059,7 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
 def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -1002,7 +1131,7 @@ def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_na
 def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
     try:
         task_state['status'] = 'running'
-        mode_label = "Gemini (사고)" if ai_mode == "thinking" else "Gemini (고속)"
+        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
         task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
         
         file_ext = file_name.split('.')[-1].lower()
@@ -1015,14 +1144,14 @@ def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_n
 
         CRITICAL PARSING RULES:
         1. DO NOT STOP AT BLANK ROWS: Scan top to bottom completely. Parse every valid item row.
-        2. Extract PartNo, ItemName, Description, Supplier, BuyPrice, ListPrice, Currency, Remarks.
+        2. Extract ItemName, PartNo, Description, Supplier, BuyPrice, ListPrice, Currency, Remarks.
         3. If BuyPrice or ListPrice has text like "(부가세 별도)" or notes, extract numerical price into BuyPrice/ListPrice and put notes into Remarks.
 
         Expected JSON Array Format:
         [
             {
-                "PartNo": "",
                 "ItemName": "",
+                "PartNo": "",
                 "Description": "",
                 "Supplier": "공급사명 (예: (주)더주원)",
                 "BuyPrice": 0.0,
@@ -1244,32 +1373,34 @@ if menu == "서류 분석 / 생성 Master":
             "bottom_remarks": st.session_state['doc_info'].get("bottom_remarks", "")
         }
 
-        def set_widget_val(prefix, val):
-            st.session_state[f"{prefix}_sel"] = val
-            st.session_state[f"{prefix}_txt"] = val
-
-        set_widget_val('to', to_field_val); set_widget_val('attn', attn_field_val)
-        set_widget_val('project_title', project_val); set_widget_val('our_ref', our_ref_val)
-        set_widget_val('your_ref', your_ref_val); set_widget_val('date', date_val)
-        set_widget_val('validity', validity_val); set_widget_val('payment_due', payment_due_val)
-        set_widget_val('pic', pic_field_val); set_widget_val('ship', ship_val)
+        st.session_state['to_txt'] = to_field_val
+        st.session_state['attn_txt'] = attn_field_val
+        st.session_state['project_title_txt'] = project_val
+        st.session_state['our_ref_txt'] = our_ref_val
+        st.session_state['your_ref_txt'] = your_ref_val
+        st.session_state['date_date_txt'] = date_val
+        st.session_state['validity_txt'] = validity_val
+        st.session_state['payment_due_txt'] = payment_due_val
+        st.session_state['pic_txt'] = pic_field_val
+        st.session_state['ship_txt'] = ship_val
 
         if "/" in flag_class_val:
             fc_parts = flag_class_val.split("/", 1)
-            set_widget_val('flag', fc_parts[0].strip())
-            set_widget_val('class', fc_parts[1].strip())
+            st.session_state['flag_txt'] = fc_parts[0].strip()
+            st.session_state['class_txt'] = fc_parts[1].strip()
         else:
-            set_widget_val('flag', flag_class_val); set_widget_val('class', '')
+            st.session_state['flag_txt'] = flag_class_val
+            st.session_state['class_txt'] = ''
 
-        set_widget_val('currency', currency_val)
+        st.session_state['currency_txt'] = currency_val
         st.session_state['last_currency'] = currency_val
         
         items_df = pd.DataFrame(parsed_items) if parsed_items else pd.DataFrame()
         if not items_df.empty:
-            for req_col in ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]:
-                if req_col not in items_df.columns: items_df[req_col] = ""
-            st.session_state['doc_items'] = clean_df(items_df[["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]])
+            st.session_state['doc_items'] = recalculate_items_df(items_df, currency=currency_val)
+            
         st.session_state['bg_task']['status'] = 'idle'
+        save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state.get('visible_cols'))
         st.success("✅ AI 문서 분석 완료 & 타사 인풋/자사 아웃풋 역할 자동 분리.")
 
     left_col, right_col = st.columns([5, 5])
@@ -1307,9 +1438,10 @@ if menu == "서류 분석 / 생성 Master":
 
         if st.button(t("btn_reset"), disabled=is_running):
             st.session_state['doc_info'] = {"to": "", "attn": "", "project_title": "", "validity": "", "flag_class": "", "our_ref": "", "date": "", "pic": "", "your_ref": "", "ship": "", "payment_due": "", "currency": "", "bottom_remarks": ""}
-            st.session_state['doc_items'] = pd.DataFrame([{"PartNo": "", "ItemName": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
+            st.session_state['doc_items'] = pd.DataFrame([{"ItemName": "", "PartNo": "", "Description": "", "Qty": "", "UnitPrice": "", "Amount": "", "Remarks": ""}])
             st.session_state['last_currency'] = "KRW"
             if 'parsed_input_doc' in st.session_state: del st.session_state['parsed_input_doc']
+            save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state.get('visible_cols'))
             st.rerun()
 
         with st.container(border=True):
@@ -1333,15 +1465,23 @@ if menu == "서류 분석 / 생성 Master":
             with col_hdr_r:
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
-                date_str = render_unified_input("Date", st.session_state['doc_info'].get("date", ""), [get_kst_now().strftime("%Y-%m-%d")], "date")
+                # [요구사항 2] 캘린더 날짜 입력 피커 및 포맷팅 적용
+                date_str = render_date_input("Date", st.session_state['doc_info'].get("date", ""), "date")
                 our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance"], "payment_due")
 
             project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
-            currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", ""), CURRENCY_OPTIONS, "currency")
+            currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", "KRW"), CURRENCY_OPTIONS, "currency")
             curr_currency = currency if currency else "KRW"
             curr_sym = get_currency_symbol(curr_currency)
+
+            # 세션 헤더 정보 업데이트
+            st.session_state['doc_info'].update({
+                "to": to_name, "attn": attn_name, "your_ref": your_ref, "ship": ship_name,
+                "flag_class": flag_class, "pic": pic_name, "date": date_str, "our_ref": our_ref,
+                "validity": validity, "payment_due": payment_due, "project_title": project_title, "currency": curr_currency
+            })
 
             if 'last_currency' not in st.session_state: st.session_state['last_currency'] = curr_currency
             last_curr = st.session_state['last_currency']
@@ -1362,10 +1502,20 @@ if menu == "서류 분석 / 생성 Master":
 
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("items_title")}</div>', unsafe_allow_html=True)
             
+            # [요구사항 10 반영] 사용자 계정별 표시할 열 숨김/보이기 설정 저장
+            all_possible_cols = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
+            visible_cols_selected = st.multiselect(
+                "👁️ 표에 표시할 열 선택 (계정별 숨김 설정 저장됨)",
+                options=all_possible_cols,
+                default=st.session_state.get('visible_cols', all_possible_cols),
+                key="visible_cols_selector"
+            )
+            st.session_state['visible_cols'] = visible_cols_selected
+
             item_master_data = clean_df(ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols))
             if not item_master_data.empty:
                 item_options = ["-- 자재 단가 마스터 DB에서 품목 선택하여 자동 입력 --"] + [
-                    f"[{row['PartNo'] or 'No PartNo'}] {row['ItemName']} | ListPrice: {row['ListPrice']} {row['Currency']} ({row['Supplier']})"
+                    f"[{row['ItemName']}] {row['PartNo']} | ListPrice: {row['ListPrice']} {row['Currency']} ({row['Supplier']})"
                     for _, row in item_master_data.iterrows()
                 ]
                 selected_master_item = st.selectbox("🔍 자재 단가 마스터 DB 품목 불러오기", options=item_options, key="quick_load_item_master")
@@ -1374,8 +1524,8 @@ if menu == "서류 분석 / 생성 Master":
                     target_item_row = item_master_data.iloc[selected_idx]
                     
                     new_item_row = {
-                        "PartNo": target_item_row.get("PartNo", ""),
                         "ItemName": target_item_row.get("ItemName", ""),
+                        "PartNo": target_item_row.get("PartNo", ""),
                         "Description": target_item_row.get("Description", ""),
                         "Qty": "1",
                         "UnitPrice": str(target_item_row.get("ListPrice", "")),
@@ -1384,25 +1534,38 @@ if menu == "서류 분석 / 생성 Master":
                     }
                     curr_items = clean_df(st.session_state['doc_items'].copy())
                     updated_items = pd.concat([curr_items, pd.DataFrame([new_item_row])], ignore_index=True)
-                    st.session_state['doc_items'] = clean_df(updated_items)
+                    st.session_state['doc_items'] = recalculate_items_df(updated_items, currency=curr_currency)
+                    save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
                     st.success(f"✅ '{target_item_row.get('ItemName')}' 품목이 입력 표에 추가되었습니다.")
                     st.rerun()
 
-            df_current = clean_df(st.session_state['doc_items'].copy())
-            cols_order = ["PartNo", "ItemName", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
-            for c in cols_order:
-                if c not in df_current.columns: df_current[c] = ""
-            df_current = clean_df(df_current[cols_order])
+            # [요구사항 9 & 10 반영] 1열 넘버링, ItemName (PartNo) 순서 정렬 및 Amount 자동 계산
+            raw_df = clean_df(st.session_state['doc_items'].copy())
+            recalced_df = recalculate_items_df(raw_df, currency=curr_currency)
+            
+            # 1열 넘버링 (No.) 생성
+            recalced_df.insert(0, "No.", range(1, len(recalced_df) + 1))
+            
+            # 선택된 열만 필터링하여 에디터에 표시
+            display_cols = ["No."] + [c for c in visible_cols_selected if c in recalced_df.columns]
+            df_for_editor = recalced_df[display_cols]
 
-            for i, row in df_current.iterrows():
-                qty, u_price, amt_curr = safe_float(row.get('Qty', '')), safe_float(row.get('UnitPrice', '')), safe_float(row.get('Amount', ''))
-                if amt_curr == 0.0 and u_price > 0 and qty > 0:
-                    calc_amt = qty * u_price
-                    df_current.at[i, 'Amount'] = f"{curr_sym}{calc_amt:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{curr_sym}{calc_amt:,.2f}"
+            edited_df = st.data_editor(
+                df_for_editor, 
+                num_rows="dynamic", 
+                use_container_width=True, 
+                key="main_doc_items_editor",
+                column_config={"No.": st.column_config.NumberColumn("No.", disabled=True, width="small")}
+            )
 
-            edited_df = clean_df(st.data_editor(df_current, num_rows="dynamic", use_container_width=True))
+            # 에디터 수정 사항을 세션 상태에 저장 ("No." 열 제외)
+            save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
+            st.session_state['doc_items'] = recalculate_items_df(save_edited_df, currency=curr_currency)
 
-            calc_total_val = edited_df["Amount"].apply(safe_float).sum()
+            # [요구사항 8] 작성 중 자동 임시저장
+            save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
+
+            calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
             fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
             default_total_str = f"{curr_sym}{fmt_tot}"
 
@@ -1439,18 +1602,18 @@ if menu == "서류 분석 / 생성 Master":
                                 item_count=inp.get("ItemCount", 1), user_email=inp.get("CreatedBy", "External")
                             )
 
-                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
                         save_history(ship_name, to_name, attn_name)
 
                         supplier_for_items = to_name or (st.session_state.get('parsed_input_doc', {}).get('TargetName')) or "자사 서류 생성"
-                        count = save_items_to_master(edited_df, supplier_name=supplier_for_items, currency=curr_currency)
+                        count = save_items_to_master(st.session_state['doc_items'], supplier_name=supplier_for_items, currency=curr_currency)
                         st.success(f"🎉 스마트 일괄 등록 완료!\n- 인풋 타사 서류 → 고객사/공급사 대장 저장\n- 새로 생성한 {doc_type} → 자사 대장 저장\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
             with btn_col2:
                 if st.button("🏢 서류 대장에 서류 일괄 등록", key="btn_reg_header_only", disabled=is_running):
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
-                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(edited_df), st.session_state.get('user_email'))
+                        save_to_doc_ledger(OUR_DB_FILE, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
                         save_history(ship_name, to_name, attn_name)
                         st.success("🎉 자사 서류 대장에 생성된 서류 헤더가 성공적으로 등록되었습니다.")
             
@@ -1459,7 +1622,7 @@ if menu == "서류 분석 / 생성 Master":
                     if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
                     else:
                         supplier_for_items = to_name or "자사 서류 생성"
-                        count = save_items_to_master(edited_df, supplier_name=supplier_for_items, currency=curr_currency)
+                        count = save_items_to_master(st.session_state['doc_items'], supplier_name=supplier_for_items, currency=curr_currency)
                         st.success(f"🎉 자재 단가 마스터 DB에 총 {count}개 품목이 등록되었습니다.")
 
     with right_col:
@@ -1469,7 +1632,7 @@ if menu == "서류 분석 / 생성 Master":
                 "doc_title": doc_type.upper(), "to_name": to_name, "attn_name": attn_name, "project_title": project_title,
                 "validity": validity, "flag_class": flag_class, "our_ref": our_ref, "date_str": date_str or get_kst_now().strftime("%Y-%m-%d"),
                 "pic": pic_name, "your_ref": your_ref, "ship_name": ship_name, "payment_due": payment_due, "currency": currency or "KRW",
-                "items": prepare_items_for_pdf(clean_df(edited_df).to_dict("records"), currency=curr_currency),
+                "items": prepare_items_for_pdf(clean_df(st.session_state['doc_items']).to_dict("records"), currency=curr_currency),
                 "bottom_remarks": bottom_remarks, "total_amount_str": final_total_str, "vat_note": vat_note_str
             }
             try:
@@ -1623,7 +1786,7 @@ elif menu == "서류 관리 대장":
                         st.rerun()
 
 # ==========================================
-# 8. 자재 단가 마스터 DB
+# 8. 자재 단가 마스터 DB ([요구사항 10] ItemName -> PartNo 순서 반영)
 # ==========================================
 elif menu == "자재 단가 마스터 DB":
     st.markdown(f"""<div class="main-header"><h1>{t('item_master_title')}</h1><p>구매/판매 자재 및 품목 단가 정보를 통합 관리합니다. 더주원 등 공급사 가격표를 AI로 자동 수집할 수 있습니다.</p></div>""", unsafe_allow_html=True)
@@ -1633,13 +1796,13 @@ elif menu == "자재 단가 마스터 DB":
     item_df["ListPrice"] = pd.to_numeric(item_df["ListPrice"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
     curr_opts = list(set(CURRENCY_OPTIONS + ["-", ""] + [str(x) for x in item_df["Currency"].unique()]))
 
-    for col in ["PartNo", "ItemName", "Description", "Supplier", "Remarks", "Currency"]:
+    for col in ["ItemName", "PartNo", "Description", "Supplier", "Remarks", "Currency"]:
         item_df[col] = item_df[col].fillna("").astype(str)
 
     with st.container(border=True):
         if not item_df.empty:
             f_col1, f_col2, f_col3 = st.columns([3, 3, 4])
-            col_options = [t("all"), "Supplier", "Currency", "PartNo", "ItemName"]
+            col_options = [t("all"), "Supplier", "Currency", "ItemName", "PartNo"]
             
             with f_col1: selected_col = st.selectbox(t("filter_category"), col_options, key="item_filter_cat")
             with f_col2:
@@ -1659,8 +1822,8 @@ elif menu == "자재 단가 마스터 DB":
             st.markdown(t("total_records", count=len(filtered_df), total=len(item_df)))
 
             item_config = {
-                "PartNo": st.column_config.TextColumn("Part No"),
                 "ItemName": st.column_config.TextColumn("Item Name"),
+                "PartNo": st.column_config.TextColumn("Part No"),
                 "Description": st.column_config.TextColumn("Description"),
                 "Supplier": st.column_config.TextColumn("공급사 (Supplier)"),
                 "BuyPrice": st.column_config.NumberColumn("매입가 (Buy Price)", format="%,.2f"),
@@ -1817,9 +1980,9 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
         with admin_tab4:
-            st.markdown("### 🚨 저장소 파일 및 인풋/히스토리 완전 초기화")
+            st.markdown("### 🚨 저장소 파일 및 인풋/히스토리/임시저장 완전 초기화")
             st.warning("⚠️ 아래 실행 시 삭제된 파일 및 데이터는 복구할 수 없습니다.")
-            col_r1, col_r2 = st.columns(2)
+            col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
                 if st.button("🗑️ 저장된 PDF 및 AI 인풋 파일 전체 삭제", key="btn_admin_clear_files"):
                     for f in os.listdir("output"):
@@ -1838,6 +2001,14 @@ elif menu == "관리자 메뉴":
                         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                             json.dump({"ships": [], "to_list": [], "attns": []}, f, ensure_ascii=False, indent=2)
                     st.success("✅ 자동완성 히스토리가 초기화되었습니다.")
+                    st.rerun()
+
+            with col_r3:
+                if st.button("🗑️ 사용자 임시저장(Draft) 전체 삭제", key="btn_admin_clear_drafts"):
+                    if os.path.exists(DRAFTS_FILE):
+                        try: os.remove(DRAFTS_FILE)
+                        except Exception: pass
+                    st.success("✅ 모든 사용자 작성 임시저장 데이터가 삭제되었습니다.")
                     st.rerun()
 
 # ==========================================
