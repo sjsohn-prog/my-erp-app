@@ -550,7 +550,7 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                st.markdown(f'<a href="{auth_url}" target="_self" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
 
