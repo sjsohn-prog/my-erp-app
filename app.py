@@ -36,7 +36,7 @@ except ImportError:
 file_access_lock = threading.Lock()
 
 # ==========================================
-# 0. 페이지 설정 & 최상단 CSS (로그인 화면 디자인 보존)
+# 0. 페이지 설정 & 최상단 CSS (로그인 화면 및 디자인 보존)
 # ==========================================
 st.set_page_config(page_title="ONE - ERP", layout="wide", page_icon="🚢")
 
@@ -134,16 +134,19 @@ GOOGLE_CLIENT_SECRET = get_secret("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = get_secret("REDIRECT_URI")
 ALLOWED_DOMAIN = get_secret("ALLOWED_DOMAIN", "1solution.co.kr")
 
+# DB 컬럼 정의
 doc_db_cols = ["IssueDate", "DocDate", "DocType", "OurRef", "YourRef", "ShipName", "TargetName", "Currency", "TotalAmount", "ItemCount", "CreatedBy", "Status"]
 item_master_cols = ["ItemName", "PartNo", "Description", "Supplier", "BuyPrice", "ListPrice", "Currency", "Remarks"]
 partner_db_cols = ["PartnerName", "PartnerType", "PIC", "Email", "Phone", "DefaultPayment", "DefaultValidity", "Remarks"]
 vessel_db_cols = ["ShipName", "IMONo", "Flag", "Class", "Owner", "Remarks"]
 
-OUR_DB_FILE = "our_db.csv"
-CUSTOMER_DB_FILE = "customer_db.csv"
-ITEM_MASTER_FILE = "item_master.csv"
-PARTNER_DB_FILE = "partner_db.csv"
-VESSEL_DB_FILE = "vessel_db.csv"
+# 직관적으로 명확화된 시트/DB 파일명 정의
+OUTBOUND_LEDGER_FILE = "db_outbound_ledger.csv"  # 매출 서류 대장
+INBOUND_LEDGER_FILE = "db_inbound_ledger.csv"    # 매입 서류 대장
+ITEM_MASTER_FILE = "db_item_master.csv"          # 자재 마스터
+PARTNER_DB_FILE = "db_partner.csv"               # 거래처 DB
+VESSEL_DB_FILE = "db_vessel.csv"                 # 선박 DB
+
 DRAFTS_FILE = "user_drafts.json"
 HISTORY_FILE = "master_history.json"
 INPUT_DOCS_DIR = "input_docs"
@@ -306,7 +309,7 @@ def safe_save_csv(df, filepath, default_cols=None):
             st.warning(f"⚠️ 구글 시트 동기화 주의 (로컬 CSV에 저장됨): {e}")
 
 # ==========================================
-# 0-3. 세션 콜백 및 스마트 위젯 (추천 버튼 100% 고정)
+# 0-3. 세션 콜백 및 스마트 위젯
 # ==========================================
 def set_session_val(key, val):
     st.session_state[key] = val
@@ -358,7 +361,6 @@ def render_date_input(label, current_val, key_prefix):
 
     col_in, col_pop = st.columns([0.88, 0.12])
     with col_in:
-        # 위젯 key 분리를 통해 session_state 직접 수정 충돌 방지
         user_val = st.text_input(f"▾ {label}", value=st.session_state[txt_key], key=f"{txt_key}_widget")
         formatted_val = format_date_str(user_val)
         st.session_state[txt_key] = formatted_val
@@ -438,7 +440,7 @@ TRANSLATIONS = {
         "hdr_title": "📌 {doc_type} 헤더 입력 (모든 항목 직접 입력 가능)",
         "items_title": "📦 품목 상세 내역 (줄바꿈/엔터 지원 / 열 너비 자동 맞춤)",
         "remarks_title": "📝 Remarks & Deviations",
-        "reg_title": "📌 DB 데이터 등록 및 저장",
+        "reg_title": "📌 DB 데이터 일괄 저장",
         "pwd_save_label": "🔒 비밀번호",
         "preview_title": "⚡ 실시간 PDF 문서 미리보기",
         "btn_download_pdf": "💾 완성된 PDF 다운로드",
@@ -577,7 +579,6 @@ if not st.session_state['authenticated']:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
 
-# 로그인 성공 직후 계정별 임시저장(Draft) 자동 복원 실행
 user_email_key = st.session_state.get('user_email', '')
 if user_email_key and st.session_state.get('draft_loaded_for_user') != user_email_key:
     user_draft = load_user_draft(user_email_key)
@@ -813,11 +814,12 @@ def _sync_local_cache(df, filepath, default_cols):
     with file_access_lock:
         cleaned_df.to_csv(filepath, index=False)
 
-our_db_init = ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols)
-_sync_local_cache(our_db_init, OUR_DB_FILE, doc_db_cols)
+# 직관화된 시트 파일 로딩 및 캐시 동기화
+outbound_init = ensure_cols(safe_read_csv(OUTBOUND_LEDGER_FILE, doc_db_cols), doc_db_cols)
+_sync_local_cache(outbound_init, OUTBOUND_LEDGER_FILE, doc_db_cols)
 
-customer_db_init = ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols)
-_sync_local_cache(customer_db_init, CUSTOMER_DB_FILE, doc_db_cols)
+inbound_init = ensure_cols(safe_read_csv(INBOUND_LEDGER_FILE, doc_db_cols), doc_db_cols)
+_sync_local_cache(inbound_init, INBOUND_LEDGER_FILE, doc_db_cols)
 
 item_master_init = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
 _sync_local_cache(item_master_init, ITEM_MASTER_FILE, item_master_cols)
@@ -859,31 +861,48 @@ def save_to_doc_ledger(target_db_file, doc_type, your_ref, our_ref, ship_name, t
 
     safe_save_csv(pd.concat([df, new_entry], ignore_index=True), target_db_file, doc_db_cols)
 
-def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW"):
+# 매입/매출 격리 및 DB 중복 갱신 완벽 반영 함수
+def save_items_to_master(items_df, supplier_name="자사 서류 생성", currency="KRW", is_outbound=True):
     if items_df is None or items_df.empty: return 0
     master_df = ensure_cols(safe_read_csv(ITEM_MASTER_FILE, item_master_cols), item_master_cols)
     
-    new_rows = []
+    updated_count = 0
     for _, row in items_df.iterrows():
-        pno, iname, desc, u_price, rem = clean_str(row.get('PartNo', '')), clean_str(row.get('ItemName', '')), clean_str(row.get('Description', '')), safe_float(row.get('UnitPrice', 0)), clean_str(row.get('Remarks', ''))
-        if pno or iname or desc:
-            new_rows.append({"ItemName": iname, "PartNo": pno, "Description": desc, "Supplier": supplier_name, "BuyPrice": 0.0, "ListPrice": u_price, "Currency": currency, "Remarks": rem})
+        pno = clean_str(row.get('PartNo', ''))
+        iname = clean_str(row.get('ItemName', ''))
+        desc = clean_str(row.get('Description', ''))
+        u_price = safe_float(row.get('UnitPrice', 0))
+        rem = clean_str(row.get('Remarks', ''))
+        
+        if not (pno or iname or desc): continue
             
-    if new_rows:
-        safe_save_csv(pd.concat([master_df, pd.DataFrame(new_rows)], ignore_index=True), ITEM_MASTER_FILE, item_master_cols)
-        return len(new_rows)
-    return 0
-
-def safe_merge_db(existing_db, new_data_df, cols):
-    if new_data_df is None or new_data_df.empty: return existing_db
-    return clean_df(ensure_cols(pd.concat([existing_db, new_data_df], ignore_index=True), cols))
-
-# ==========================================
-# 4. AI 파싱 엔진
-# ==========================================
-# ==========================================
-# 4. AI 파싱 엔진
-# ==========================================
+        buy_price = 0.0 if is_outbound else u_price
+        list_price = u_price if is_outbound else 0.0
+        
+        if pno:
+            mask = (master_df['PartNo'].str.strip() == pno) & (master_df['Supplier'].str.strip() == supplier_name)
+        else:
+            mask = (master_df['ItemName'].str.strip() == iname)
+        
+        if mask.any():
+            idx = master_df[mask].index[0]
+            if is_outbound: master_df.at[idx, 'ListPrice'] = list_price
+            else: master_df.at[idx, 'BuyPrice'] = buy_price
+            if currency: master_df.at[idx, 'Currency'] = currency
+            if rem: master_df.at[idx, 'Remarks'] = rem
+        else:
+            new_row = pd.DataFrame([{
+                "ItemName": iname, "PartNo": pno, "Description": desc,
+                "Supplier": supplier_name, "BuyPrice": buy_price,
+                "ListPrice": list_price, "Currency": currency, "Remarks": rem
+            }])
+            master_df = pd.concat([master_df, new_row], ignore_index=True)
+            
+        updated_count += 1
+            
+    if updated_count > 0:
+        safe_save_csv(master_df, ITEM_MASTER_FILE, item_master_cols)
+    return updated_count
 
 # ==========================================
 # 4. AI 파싱 엔진
@@ -893,8 +912,6 @@ def get_ai_response(api_key, contents, mode="flash"):
         raise ValueError("Gemini API 키가 설정되지 않았습니다.")
     
     genai.configure(api_key=api_key)
-    
-    # Gemini 3.6 모델 지정
     model_name = "gemini-3.6-flash" if mode == "flash" else "gemini-3.6-pro"
     
     model = genai.GenerativeModel(
@@ -910,7 +927,6 @@ def get_ai_response(api_key, contents, mode="flash"):
         text = re.sub(r"\n?```$", "", text).strip()
         
     return json.loads(text)
-
 
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
@@ -965,150 +981,6 @@ def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mo
 
         ai_data = get_ai_response(api_key, [prompt, content], mode=ai_mode)
         task_state['result'] = {'doc_type': doc_type, 'ai_data': ai_data, 'file_name': file_name}
-        task_state['status'] = 'completed'
-    except Exception as e:
-        task_state['status'] = 'error'
-        task_state['error_msg'] = str(e)
-
-def run_bg_doc_ledger_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
-    try:
-        task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
-        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 서류 대장 파일({file_name})을 분석 중입니다...'
-        
-        file_ext = file_name.split('.')[-1].lower()
-        save_path = os.path.join(INPUT_DOCS_DIR, f"{get_kst_now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
-        with open(save_path, "wb") as f: f.write(file_bytes)
-
-        all_results = []
-        db_prompt = """
-        Extract document headers/summaries from the provided file into a JSON Array of objects matching this exact structure:
-        [
-            {
-                "IssueDate": "YYYY-MM-DD",
-                "DocDate": "YYYY-MM-DD",
-                "DocType": "Quotation",
-                "OurRef": "Doc or Title Ref",
-                "YourRef": "",
-                "ShipName": "",
-                "TargetName": "Company Name",
-                "Currency": "KRW",
-                "TotalAmount": 0.0,
-                "ItemCount": 1,
-                "CreatedBy": "PIC Name",
-                "Status": "🟡 Quoted"
-            }
-        ]
-        CRITICAL RULES:
-        - DO NOT STOP AT BLANK ROWS in spreadsheets/documents. Scan completely to bottom.
-        - If multiple documents/sections exist in one file, create separate header entries.
-        """
-
-        if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
-            content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
-            res = get_ai_response(api_key, [db_prompt, content], mode=ai_mode)
-            extracted = extract_items_list(res)
-            if extracted: all_results.extend(extracted)
-        elif file_ext in ['xlsx', 'xls']:
-            excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
-            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
-            for idx, s_name in enumerate(sheets_to_parse):
-                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 추출 중..."
-                try:
-                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
-                    if not df_clean.empty:
-                        res = get_ai_response(api_key, [db_prompt, f"Sheet '{s_name}' CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        extracted = extract_items_list(res)
-                        if extracted: all_results.extend(extracted)
-                except Exception: pass
-        elif file_ext == 'csv':
-            try:
-                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
-                if not df_clean.empty:
-                    res = get_ai_response(api_key, [db_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    extracted = extract_items_list(res)
-                    if extracted: all_results.extend(extracted)
-            except Exception: pass
-
-        if not all_results:
-            task_state['status'] = 'error'
-            task_state['error_msg'] = "파싱된 서류 데이터가 없습니다. 업로드된 문서의 내용이나 API 키를 확인해 주세요."
-            return
-
-        parsed_df = ensure_cols(pd.DataFrame(all_results), doc_db_cols)
-        task_state['result'] = clean_df(parsed_df)
-        task_state['status'] = 'completed'
-    except Exception as e:
-        task_state['status'] = 'error'
-        task_state['error_msg'] = str(e)
-
-def run_bg_item_master_parse(task_state, api_key, file_bytes, file_name, sheet_names, ai_mode):
-    try:
-        task_state['status'] = 'running'
-        mode_label = "Gemini 3.6 Flash (사고)" if ai_mode == "thinking" else "Gemini 3.6 Flash (고속)"
-        task_state['progress_msg'] = f'AI [{mode_label}] 엔진이 자재 단가표({file_name})를 파싱 중입니다...'
-        
-        file_ext = file_name.split('.')[-1].lower()
-        save_path = os.path.join(INPUT_DOCS_DIR, f"{get_kst_now().strftime('%Y%m%d_%H%M%S')}_{file_name}")
-        with open(save_path, "wb") as f: f.write(file_bytes)
-
-        all_results = []
-        item_prompt = """
-        Extract ALL individual material/part price items from the provided file into a JSON Array.
-
-        CRITICAL PARSING RULES:
-        1. DO NOT STOP AT BLANK ROWS: Scan top to bottom completely. Parse every valid item row.
-        2. Extract ItemName, PartNo, Description, Supplier, BuyPrice, ListPrice, Currency, Remarks.
-        3. If BuyPrice or ListPrice has text like "(부가세 별도)" or notes, extract numerical price into BuyPrice/ListPrice and put notes into Remarks.
-
-        Expected JSON Array Format:
-        [
-            {
-                "ItemName": "",
-                "PartNo": "",
-                "Description": "",
-                "Supplier": "공급사명 (예: (주)더주원)",
-                "BuyPrice": 0.0,
-                "ListPrice": 0.0,
-                "Currency": "KRW",
-                "Remarks": ""
-            }
-        ]
-        """
-
-        if file_ext in ['png', 'jpg', 'jpeg', 'pdf']:
-            content = Image.open(io.BytesIO(file_bytes)) if file_ext in ['png', 'jpg', 'jpeg'] else {"mime_type": "application/pdf", "data": file_bytes}
-            res = get_ai_response(api_key, [item_prompt, content], mode=ai_mode)
-            extracted = extract_items_list(res)
-            if extracted: all_results.extend(extracted)
-        elif file_ext in ['xlsx', 'xls']:
-            excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
-            sheets_to_parse = sheet_names if sheet_names else excel_file.sheet_names
-            for idx, s_name in enumerate(sheets_to_parse):
-                task_state['progress_msg'] = f"[{idx+1}/{len(sheets_to_parse)}] '{s_name}' 시트 자재 파싱 중..."
-                try:
-                    df_clean = pd.read_excel(excel_file, sheet_name=s_name).dropna(how='all')
-                    if not df_clean.empty:
-                        res = get_ai_response(api_key, [item_prompt, f"Excel Content (Sheet: {s_name}):\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                        extracted = extract_items_list(res)
-                        if extracted: all_results.extend(extracted)
-                except Exception: pass
-        elif file_ext == 'csv':
-            try:
-                df_clean = pd.read_csv(io.BytesIO(file_bytes)).dropna(how='all')
-                if not df_clean.empty:
-                    res = get_ai_response(api_key, [item_prompt, f"CSV Content:\n{df_clean.to_csv(index=False)}"], mode=ai_mode)
-                    extracted = extract_items_list(res)
-                    if extracted: all_results.extend(extracted)
-            except Exception: pass
-
-        if not all_results:
-            task_state['status'] = 'error'
-            task_state['error_msg'] = "파싱된 자재 데이터가 없습니다. AI 응답을 확인해 주세요."
-            return
-
-        parsed_df = ensure_cols(pd.DataFrame(all_results), item_master_cols)
-        task_state['result'] = clean_df(parsed_df)
         task_state['status'] = 'completed'
     except Exception as e:
         task_state['status'] = 'error'
@@ -1231,23 +1103,25 @@ if menu == "서류 파이프라인 Master":
     curr_user_mail = st.session_state.get('user_email', 'Unknown')
     st.caption(f"💾 **실시간 자동 임시저장 활성화** (계정: `{curr_user_mail}` | 페이지 재접속/로그인 시 100% 자동으로 이전 작성 내역 복원)")
 
-    our_ledger, cust_ledger, history = safe_read_csv(OUR_DB_FILE, doc_db_cols), safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), load_history()
+    outbound_df = safe_read_csv(OUTBOUND_LEDGER_FILE, doc_db_cols)
+    inbound_df = safe_read_csv(INBOUND_LEDGER_FILE, doc_db_cols)
+    history = load_history()
     partner_df = safe_read_csv(PARTNER_DB_FILE, partner_db_cols)
     vessel_df = safe_read_csv(VESSEL_DB_FILE, vessel_db_cols)
 
-    db_to_options = sorted(list(set([str(x).strip() for x in (partner_df["PartnerName"].tolist() + our_ledger["TargetName"].tolist() + cust_ledger["TargetName"].tolist() + history.get("to_list", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
-    db_ship_options = sorted(list(set([str(x).strip() for x in (vessel_df["ShipName"].tolist() + our_ledger["ShipName"].tolist() + cust_ledger["ShipName"].tolist() + history.get("ships", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
+    db_to_options = sorted(list(set([str(x).strip() for x in (partner_df["PartnerName"].tolist() + outbound_df["TargetName"].tolist() + inbound_df["TargetName"].tolist() + history.get("to_list", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
+    db_ship_options = sorted(list(set([str(x).strip() for x in (vessel_df["ShipName"].tolist() + outbound_df["ShipName"].tolist() + inbound_df["ShipName"].tolist() + history.get("ships", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
     db_attn_options = sorted(list(set([str(x).strip() for x in (partner_df["PIC"].tolist() + history.get("attns", [])) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
-    db_our_ref_options = sorted(list(set([str(x).strip() for x in our_ledger["OurRef"].tolist() if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
-    db_your_ref_options = sorted(list(set([str(x).strip() for x in (our_ledger["YourRef"].tolist() + cust_ledger["YourRef"].tolist()) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
+    db_our_ref_options = sorted(list(set([str(x).strip() for x in outbound_df["OurRef"].tolist() if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
+    db_your_ref_options = sorted(list(set([str(x).strip() for x in (outbound_df["YourRef"].tolist() + inbound_df["YourRef"].tolist()) if str(x).strip() and str(x).strip() not in ["-", "nan", "None"]])))
 
     with st.container(border=True):
         st.markdown("⚡ **[1초 서류 승계] 이전 서류 불러와서 자동 작성**")
         all_ref_options = ["-- 이전 서류 Ref No. 선택하여 헤더 및 품목 100% 불러오기 --"] + db_our_ref_options + db_your_ref_options
         selected_ref_carry = st.selectbox("불러올 서류 Ref 번호", options=all_ref_options, key="carry_over_ref_select")
         if selected_ref_carry and selected_ref_carry != all_ref_options[0]:
-            matched_row = our_ledger[our_ledger["OurRef"] == selected_ref_carry]
-            if matched_row.empty: matched_row = cust_ledger[cust_ledger["YourRef"] == selected_ref_carry]
+            matched_row = outbound_df[outbound_df["OurRef"] == selected_ref_carry]
+            if matched_row.empty: matched_row = inbound_df[inbound_df["YourRef"] == selected_ref_carry]
             if not matched_row.empty:
                 r = matched_row.iloc[0]
                 st.session_state['doc_info'].update({
@@ -1518,33 +1392,18 @@ if menu == "서류 파이프라인 Master":
             st.markdown(f'<div class="section-title" style="margin-top:20px;">{t("reg_title")}</div>', unsafe_allow_html=True)
             reg_pwd = st.text_input(t("pwd_save_label"), type="password", key="doc_reg_pwd")
 
-            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
-            with btn_col1:
-                if st.button("🚀 스마트 일괄 자동 등록 ", key="btn_reg_all_batch", disabled=is_running):
-                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                    else:
-                        target_db = OUR_DB_FILE if is_outbound else CUSTOMER_DB_FILE
-                        save_to_doc_ledger(target_db, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
-                        save_history(ship_name, to_name, attn_name)
+            # 단일 스마트 일괄 자동 등록 버튼으로 통합
+            if st.button("🚀 스마트 일괄 자동 등록 (서류 대장 + 자재 DB 동시 저장)", key="btn_reg_all_batch", disabled=is_running):
+                if reg_pwd != SAVE_PASSWORD: 
+                    st.error(t("pwd_err"))
+                else:
+                    target_db = OUTBOUND_LEDGER_FILE if is_outbound else INBOUND_LEDGER_FILE
+                    save_to_doc_ledger(target_db, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
+                    save_history(ship_name, to_name, attn_name)
 
-                        count = save_items_to_master(st.session_state['doc_items'], supplier_name=to_name or "자사 서류 생성", currency=curr_currency)
-                        st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → 서류 대장 저장\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
-
-            with btn_col2:
-                if st.button("🏢 서류 대장에 서류 등록", key="btn_reg_header_only", disabled=is_running):
-                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                    else:
-                        target_db = OUR_DB_FILE if is_outbound else CUSTOMER_DB_FILE
-                        save_to_doc_ledger(target_db, doc_type, your_ref, our_ref, ship_name, to_name, date_str, currency, calc_total_val, len(st.session_state['doc_items']), st.session_state.get('user_email'))
-                        save_history(ship_name, to_name, attn_name)
-                        st.success("🎉 서류 대장에 헤더 정보가 등록되었습니다.")
-            
-            with btn_col3:
-                if st.button("📦 자재 마스터 DB에 품목 등록", key="btn_reg_items_only", disabled=is_running):
-                    if reg_pwd != SAVE_PASSWORD: st.error(t("pwd_err"))
-                    else:
-                        count = save_items_to_master(st.session_state['doc_items'], supplier_name=to_name or "자사 서류 생성", currency=curr_currency)
-                        st.success(f"🎉 자재 단가 마스터 DB에 총 {count}개 품목이 등록되었습니다.")
+                    supp_nm = to_name or ("자사 서류 생성" if is_outbound else "공급사 서류")
+                    count = save_items_to_master(st.session_state['doc_items'], supplier_name=supp_nm, currency=curr_currency, is_outbound=is_outbound)
+                    st.success(f"🎉 스마트 일괄 등록 완료!\n- 서류 헤더 → {'매출' if is_outbound else '매입'} 서류 대장 저장\n- 자재/품목 {count}건 → 자재 마스터 DB 저장")
 
     with right_col:
         with st.container(border=True):
@@ -1633,7 +1492,7 @@ elif menu == "통합 DB 마스터":
                     st.success("🎉 자재 마스터 DB가 성공적으로 저장되었습니다.")
                     st.rerun()
 
-                st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="item_master_db.csv", mime="text/csv", key="dl_item_master_csv")
+                st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name="db_item_master.csv", mime="text/csv", key="dl_item_master_csv")
             else: st.info("등록된 자재/품목 데이터가 없습니다.")
 
     elif db_choice == "🤝 통합 거래처 DB (Partners)":
@@ -1657,7 +1516,7 @@ elif menu == "통합 DB 마스터":
                 st.rerun()
 
     else:
-        tab_our, tab_cust = st.tabs(["🏢 자사 서류 대장", "🤝 고객사 / 공급사 서류 대장"])
+        tab_out, tab_in = st.tabs(["🟢 매출 서류 대장 (Outbound)", "🔵 매입 서류 대장 (Inbound)"])
         def render_ledger_tab(db_filepath, tab_key_prefix):
             db_df = clean_df(ensure_cols(safe_read_csv(db_filepath, doc_db_cols), doc_db_cols))
             db_df["TotalAmount"] = pd.to_numeric(db_df["TotalAmount"].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0).astype(float)
@@ -1730,8 +1589,8 @@ elif menu == "통합 DB 마스터":
                 st.download_button(t("btn_download_csv"), edited_df.to_csv(index=False, encoding='utf-8-sig'), file_name=f"{tab_key_prefix}_ledger.csv", mime="text/csv", key=f"dl_{tab_key_prefix}_csv")
             else: st.info(t("no_ledger"))
 
-        with tab_our: render_ledger_tab(OUR_DB_FILE, "our_doc")
-        with tab_cust: render_ledger_tab(CUSTOMER_DB_FILE, "cust_doc")
+        with tab_out: render_ledger_tab(OUTBOUND_LEDGER_FILE, "outbound_doc")
+        with tab_in: render_ledger_tab(INBOUND_LEDGER_FILE, "inbound_doc")
 
 # ==========================================
 # 8. 관리자 메뉴
@@ -1757,40 +1616,40 @@ elif menu == "관리자 메뉴":
                 st.rerun()
 
         admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
-            "🏢 자사 서류 대장 가공", "🤝 고객사 서류 대장 가공", 
+            "🟢 매출 서류 대장 가공", "🔵 매입 서류 대장 가공", 
             "📦 자재 단가 마스터 가공", "🚨 전체 초기화 및 저장소 관리"
         ])
 
         with admin_tab1:
-            st.markdown("### 🏢 자사 서류 대장 수정 및 삭제")
-            our_df_admin = clean_df(ensure_cols(safe_read_csv(OUR_DB_FILE, doc_db_cols), doc_db_cols))
-            edited_our_admin = st.data_editor(our_df_admin, num_rows="dynamic", use_container_width=True, key="admin_our_editor")
+            st.markdown("### 🟢 매출 서류 대장 수정 및 삭제")
+            outbound_df_admin = clean_df(ensure_cols(safe_read_csv(OUTBOUND_LEDGER_FILE, doc_db_cols), doc_db_cols))
+            edited_outbound_admin = st.data_editor(outbound_df_admin, num_rows="dynamic", use_container_width=True, key="admin_outbound_editor")
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("💾 자사 서류 대장 변경사항 반영", key="btn_admin_save_our"):
-                    safe_save_csv(edited_our_admin, OUR_DB_FILE, doc_db_cols)
-                    st.success("✅ 자사 서류 대장이 저장되었습니다.")
+                if st.button("💾 매출 서류 대장 변경사항 반영", key="btn_admin_save_outbound"):
+                    safe_save_csv(edited_outbound_admin, OUTBOUND_LEDGER_FILE, doc_db_cols)
+                    st.success("✅ 매출 서류 대장이 저장되었습니다.")
                     st.rerun()
             with col2:
-                if st.button("🚨 자사 서류 대장 전체 초기화", key="btn_admin_reset_our"):
-                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), OUR_DB_FILE, doc_db_cols)
-                    st.success("🚨 자사 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
+                if st.button("🚨 매출 서류 대장 전체 초기화", key="btn_admin_reset_outbound"):
+                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), OUTBOUND_LEDGER_FILE, doc_db_cols)
+                    st.success("🚨 매출 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
                     st.rerun()
 
         with admin_tab2:
-            st.markdown("### 🤝 고객사 / 공급사 서류 대장 수정 및 삭제")
-            cust_df_admin = clean_df(ensure_cols(safe_read_csv(CUSTOMER_DB_FILE, doc_db_cols), doc_db_cols))
-            edited_cust_admin = st.data_editor(cust_df_admin, num_rows="dynamic", use_container_width=True, key="admin_cust_editor")
+            st.markdown("### 🔵 매입 서류 대장 수정 및 삭제")
+            inbound_df_admin = clean_df(ensure_cols(safe_read_csv(INBOUND_LEDGER_FILE, doc_db_cols), doc_db_cols))
+            edited_inbound_admin = st.data_editor(inbound_df_admin, num_rows="dynamic", use_container_width=True, key="admin_inbound_editor")
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("💾 고객사 서류 대장 변경사항 반영", key="btn_admin_save_cust"):
-                    safe_save_csv(edited_cust_admin, CUSTOMER_DB_FILE, doc_db_cols)
-                    st.success("✅ 고객사 서류 대장이 저장되었습니다.")
+                if st.button("💾 매입 서류 대장 변경사항 반영", key="btn_admin_save_inbound"):
+                    safe_save_csv(edited_inbound_admin, INBOUND_LEDGER_FILE, doc_db_cols)
+                    st.success("✅ 매입 서류 대장이 저장되었습니다.")
                     st.rerun()
             with col2:
-                if st.button("🚨 고객사 서류 대장 전체 초기화", key="btn_admin_reset_cust"):
-                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), CUSTOMER_DB_FILE, doc_db_cols)
-                    st.success("🚨 고객사 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
+                if st.button("🚨 매입 서류 대장 전체 초기화", key="btn_admin_reset_inbound"):
+                    safe_save_csv(pd.DataFrame(columns=doc_db_cols), INBOUND_LEDGER_FILE, doc_db_cols)
+                    st.success("🚨 매입 서류 대장 및 구글 시트가 완전 초기화되었습니다.")
                     st.rerun()
 
         with admin_tab3:
