@@ -243,7 +243,6 @@ TRANSLATIONS = {
     "KR": {
         "subtitle": "사내 임직원 전용 서류 및 자재 관리 시스템",
         "google_login": "🔑 Google 계정으로 로그인",
-        "test_login": "🚀 테스트 로그인",
         "logout": "🚪 로그아웃",
         "user_label": "👤 접속자:",
         "sys_menu": "🖥️ SYSTEM MENU",
@@ -296,7 +295,6 @@ TRANSLATIONS = {
     "EN": {
         "subtitle": "In-house Document & Material Management System",
         "google_login": "🔑 Sign in with Google",
-        "test_login": "🚀 Test Login",
         "logout": "🚪 Logout",
         "user_label": "👤 User:",
         "sys_menu": "🖥️ SYSTEM MENU",
@@ -360,7 +358,6 @@ def get_google_auth_url():
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI:
         return None
     
-    # scope 필수 항목 (이메일, 프로필, openid)
     scopes = [
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile",
@@ -376,7 +373,6 @@ def get_google_auth_url():
         "prompt": "select_account"
     }
     
-    # quote_via를 사용하여 공백을 %20으로 정확히 인코딩
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params, quote_via=urllib.parse.quote)}"
 
 def get_google_user_info(code):
@@ -553,11 +549,6 @@ if not st.session_state['authenticated']:
                 st.markdown(f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
-
-            if st.button(t("test_login")):
-                st.session_state['authenticated'] = True
-                st.session_state['user_email'] = f"sjsohn@{ALLOWED_DOMAIN}"
-                st.rerun()
     st.stop()
 
 # ==========================================
@@ -753,9 +744,6 @@ def load_saved_key():
 gemini_key = load_saved_key()
 
 def _sync_local_cache(df, filepath, default_cols):
-    # 구글 시트(원본)에서 읽어온 데이터를 로컬 CSV 캐시에만 반영합니다.
-    # (safe_save_csv와 달리 시트로 재업로드하지 않아, 매 리런마다 발생하던
-    #  불필요한 Google Sheets API 쓰기 요청을 방지합니다.)
     cleaned_df = ensure_cols(clean_df(df), default_cols)
     cleaned_df.to_csv(filepath, index=False)
 
