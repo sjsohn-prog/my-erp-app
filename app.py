@@ -885,14 +885,16 @@ def safe_merge_db(existing_db, new_data_df, cols):
 # 4. AI 파싱 엔진
 # ==========================================
 
-# 👇 여기부터 복사해서 붙여넣으세요 👇
+# ==========================================
+# 4. AI 파싱 엔진
+# ==========================================
 def get_ai_response(api_key, contents, mode="flash"):
     if not api_key:
         raise ValueError("Gemini API 키가 설정되지 않았습니다.")
     
     genai.configure(api_key=api_key)
     
-    # 요청하신 대로 3.6 모델로만 호출 (선택된 모드에 따라 flash 또는 pro/사고 모델 배정)
+    # Gemini 3.6 모델 지정
     model_name = "gemini-3.6-flash" if mode == "flash" else "gemini-3.6-pro"
     
     model = genai.GenerativeModel(
@@ -903,16 +905,13 @@ def get_ai_response(api_key, contents, mode="flash"):
     response = model.generate_content(contents)
     text = response.text.strip()
     
-    # JSON 추출을 위한 마크다운(```json) 제거 처리
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text).strip()
         
     return json.loads(text)
-# 👆 여기까지 입니다 👆
 
-def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
-# ... (기존 코드 계속) ...
+
 def run_bg_doc_parse(task_state, api_key, file_bytes, file_name, doc_type, ai_mode, sheet_names=None):
     try:
         task_state['status'] = 'running'
