@@ -362,7 +362,8 @@ def render_date_input(label, current_val, key_prefix):
 
     col_in, col_pop = st.columns([0.88, 0.12])
     with col_in:
-        user_val = st.text_input(f"📅 {label}", key=txt_key)
+        # 🎯 "📅 {label}" 이모지를 다른 필드와 동일하게 "▾ {label}" 로 수정
+        user_val = st.text_input(f"▾ {label}", key=txt_key)
         formatted_val = format_date_str(user_val)
         if formatted_val != user_val:
             st.session_state[txt_key] = formatted_val
