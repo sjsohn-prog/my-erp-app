@@ -161,6 +161,15 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'draft_loaded_for_user' not in st.session_state: st.session_state['draft_loaded_for_user'] = None
 if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
 
+# [F5 새로고침 복원] 스크립트 실행 직후 URL 토큰 검증하여 자동 로그인 100% 복원
+if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
+    try:
+        decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
+        if not ALLOWED_DOMAIN or decoded_email.endswith(f"@{ALLOWED_DOMAIN}"):
+            st.session_state['authenticated'] = True
+            st.session_state['user_email'] = decoded_email
+    except Exception: pass
+
 if 'bg_task' not in st.session_state:
     st.session_state['bg_task'] = {'status': 'idle', 'type': None, 'progress_msg': '', 'result': None, 'error_msg': None}
 
@@ -174,7 +183,7 @@ if 'visible_cols' not in st.session_state:
     st.session_state['visible_cols'] = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
 
 # ==========================================
-# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동 (API Caching 최적화)
+# 0-2. 공통 헬퍼 함수 & 실시간 환율 & 구글 시트 연동
 # ==========================================
 def get_kst_now():
     return datetime.now(timezone(timedelta(hours=9)))
@@ -546,7 +555,7 @@ def get_google_user_info(code):
         return json.loads(response_user.read().decode('utf-8'))
 
 # ==========================================
-# 1. UI 인증 로직 & 새로고침 세션 유지
+# 1. UI 인증 로직
 # ==========================================
 selected_lang_flag = st.radio("Language", ["🇰🇷", "🇺🇸"], index=0 if st.session_state['lang'] == 'KR' else 1, horizontal=True, label_visibility="collapsed", key="top_lang_radio")
 target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
@@ -554,15 +563,6 @@ target_lang_code = "KR" if selected_lang_flag == "🇰🇷" else "EN"
 if target_lang_code != st.session_state['lang']:
     st.session_state['lang'] = target_lang_code
     st.rerun()
-
-# URL 토큰 기반 새로고침(F5) 세션 자동 복원
-if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
-    try:
-        decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
-        if not ALLOWED_DOMAIN or decoded_email.endswith(f"@{ALLOWED_DOMAIN}"):
-            st.session_state['authenticated'] = True
-            st.session_state['user_email'] = decoded_email
-    except Exception: pass
 
 try: code_param = st.query_params.get("code", None)
 except Exception: code_param = None
@@ -578,7 +578,7 @@ if code_param and not st.session_state['authenticated']:
             st.session_state['authenticated'] = True
             st.session_state['user_email'] = email
             auth_token = base64.b64encode(email.encode('utf-8')).decode('utf-8')
-            st.query_params["auth_token"] = auth_token  # 주소창 세션 복원 토큰 부여
+            st.query_params["auth_token"] = auth_token
             st.query_params.pop("code", None)
             st.rerun()
     except urllib.error.HTTPError as http_err:
@@ -603,8 +603,8 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # target="_top"으로 아이프레임 이탈하여 현재 탭 전체에서 구글 로그인 진행
-                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
+                # Streamlit 순정 컴포넌트 st.link_button 사용 (보안 차단 100% 우회)
+                st.link_button(t("google_login"), auth_url, use_container_width=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
@@ -1055,7 +1055,7 @@ if st.session_state.get('user_email'):
         st.session_state['authenticated'] = False
         st.session_state['user_email'] = ""
         st.session_state['draft_loaded_for_user'] = None
-        st.query_params.clear()  # 주소창 토큰 완전 삭제
+        st.query_params.clear()
         st.rerun()
 
 st.sidebar.markdown("""
@@ -1743,7 +1743,7 @@ elif menu == "관리자 메뉴":
                     st.rerun()
 
 # ==========================================
-# 9. 서류 이력 & 갤러리 (인풋 PDF 미리보기 포함)
+# 9. 서류 이력 & 갤러리
 # ==========================================
 else:
     st.markdown("""<div class="main-header"><h1>🖼️ 서류 이력 & 갤러리 (Document Gallery & History)</h1><p>생성된 PDF 서류와 상대방 원본 분석 서류를 1:1 세트로 직접 비교·조회합니다.</p></div>""", unsafe_allow_html=True)
