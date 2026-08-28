@@ -603,8 +603,8 @@ if not st.session_state['authenticated']:
             
             auth_url = get_google_auth_url()
             if auth_url:
-                # Streamlit 순정 컴포넌트 st.link_button 사용 (보안 차단 100% 우회)
-                st.link_button(t("google_login"), auth_url, use_container_width=True)
+                # target="_top"을 사용하여 팝업/새 탭 없이 현재 창에서 바로 로그인 이동
+                st.markdown(f'<a href="{auth_url}" target="_top" class="google-btn">{t("google_login")}</a>', unsafe_allow_html=True)
             else:
                 st.warning("⚠️ GOOGLE_CLIENT_ID 또는 REDIRECT_URI가 설정되지 않았습니다.")
     st.stop()
