@@ -1202,7 +1202,7 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택 (Direction)", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
+pipeline_dir = st.sidebar.radio("🔄 업무 방향 선택", ["🟢 매출 업무 (Sales / Outbound)", "🔵 매입 업무 (Procurement / Inbound)"])
 is_outbound = "매출" in pipeline_dir
 
 menu_options = [t("menu_gen"), t("menu_db_master"), t("menu_history"), t("menu_admin")]
@@ -1408,7 +1408,7 @@ if menu == "서류 파이프라인 Master":
                 to_name = render_unified_input("To (거래처)", st.session_state['doc_info'].get("to", ""), db_to_options, "to")
                 attn_name = render_unified_input("Attention (담당자)", st.session_state['doc_info'].get("attn", ""), db_attn_options, "attn")
                 your_ref = render_unified_input("Your Ref. No.", st.session_state['doc_info'].get("your_ref", ""), db_your_ref_options, "your_ref")
-                ship_name = render_unified_input("Ship's Name (선박명)", st.session_state['doc_info'].get("ship", ""), db_ship_options, "ship")
+                ship_name = render_unified_input("Ship's Name", st.session_state['doc_info'].get("ship", ""), db_ship_options, "ship")
 
                 curr_fc = clean_str(st.session_state['doc_info'].get("flag_class", ""))
                 fc_parts = curr_fc.split("/", 1) if "/" in curr_fc else [curr_fc, ""]
@@ -1420,13 +1420,13 @@ if menu == "서류 파이프라인 Master":
             with col_hdr_r:
                 st.markdown("**[발신자 정보 / Issuer]**")
                 pic_name = render_unified_input("PIC (작성자)", st.session_state['doc_info'].get("pic", ""), [st.session_state.get('user_email', '')], "pic")
-                date_str = render_date_input("Date (발행일)", st.session_state['doc_info'].get("date", ""), "date")
+                date_str = render_date_input("Issue Date (발행일)", st.session_state['doc_info'].get("date", ""), "date")
                 our_ref = render_unified_input("Our Ref. No.", st.session_state['doc_info'].get("our_ref", ""), db_our_ref_options, "our_ref")
                 validity = render_unified_input("Validity", st.session_state['doc_info'].get("validity", ""), ["30 Days", "14 Days", "60 Days"], "validity")
                 payment_due = render_unified_input("Payment Due", st.session_state['doc_info'].get("payment_due", ""), ["30 Days Net", "Immediate", "50% Advance / 50% Balance"], "payment_due")
 
             project_title = render_unified_input("Project Title", st.session_state['doc_info'].get("project_title", ""), [], "project_title")
-            currency = render_unified_input("Currency (통화)", st.session_state['doc_info'].get("currency", "KRW"), CURRENCY_OPTIONS, "currency")
+            currency = render_unified_input("Currency", st.session_state['doc_info'].get("currency", "KRW"), CURRENCY_OPTIONS, "currency")
             curr_currency = currency if currency else "KRW"
             curr_sym = get_currency_symbol(curr_currency)
 
@@ -1457,7 +1457,7 @@ if menu == "서류 파이프라인 Master":
             
             all_possible_cols = ["ItemName", "PartNo", "Description", "Qty", "UnitPrice", "Amount", "Remarks"]
             visible_cols_selected = st.multiselect(
-                "👁️ 표에 표시할 열 선택 (계정별 숨김 설정 저장됨)",
+                "👁️ 표에 표시할 열 선택 (계정별 숨김 설정 자동 저장됨)",
                 options=all_possible_cols,
                 default=st.session_state.get('visible_cols', all_possible_cols),
                 key="visible_cols_selector"
