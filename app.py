@@ -11,6 +11,8 @@ import threading
 import urllib.parse
 import urllib.request
 import urllib.error
+import hmac
+import hashlib
 from datetime import datetime, timedelta, timezone
 import google.generativeai as genai
 from PIL import Image
@@ -225,6 +227,29 @@ if not ADMIN_PASSWORD or not SAVE_PASSWORD:
     st.error("⚠️ 시스템 환경변수(Secrets)에 관리자 비밀번호가 설정되지 않았습니다.")
     st.stop()
 
+# ----------------------------------------------------
+# [보안 추가] HMAC 기반 F5 새로고침용 안전한 토큰 생성/검증 함수
+# ----------------------------------------------------
+def create_auth_token(email):
+    secret_key = SAVE_PASSWORD.encode('utf-8') if SAVE_PASSWORD else b"default_secret"
+    signature = hmac.new(secret_key, email.encode('utf-8'), hashlib.sha256).hexdigest()
+    raw_token = f"{email}:{signature}"
+    return base64.b64encode(raw_token.encode('utf-8')).decode('utf-8')
+
+def verify_auth_token(token_str):
+    try:
+        secret_key = SAVE_PASSWORD.encode('utf-8') if SAVE_PASSWORD else b"default_secret"
+        decoded = base64.b64decode(token_str).decode('utf-8')
+        email, signature = decoded.split(":", 1)
+        expected_sig = hmac.new(secret_key, email.encode('utf-8'), hashlib.sha256).hexdigest()
+        
+        if hmac.compare_digest(signature, expected_sig):
+            return email
+    except Exception:
+        pass
+    return None
+# ----------------------------------------------------
+
 FLAG_OPTIONS = ["Panama", "Liberia", "Marshall Islands", "Hong Kong", "Singapore", "Korea (KR)", "Bahamas", "Malta", "Cyprus", "India", "China", "Greece", "UK"]
 CLASS_OPTIONS = ["ABS", "BV", "CCS", "CRS", "DNV", "IRS", "KR", "LR", "NK", "PRS", "RINA", "TL", "Non-IACS", "KR & NK", "DNV & LR", "IRS & DNV", "Panama / KR"]
 CURRENCY_OPTIONS = ["KRW", "USD", "EUR", "JPY", "CNY", "SGD", "GBP", "HKD", "AED"]
@@ -262,11 +287,11 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'draft_loaded_for_user' not in st.session_state: st.session_state['draft_loaded_for_user'] = None
 if 'admin_unlocked' not in st.session_state: st.session_state['admin_unlocked'] = False
 
-# [F5 새로고침 복원] 스크립트 실행 직후 URL 토큰 검증하여 자동 로그인 100% 복원
+# [F5 새로고침 복원] 스크립트 실행 직후 URL 토큰 검증하여 자동 로그인 100% 복원 (HMAC 서명 방식 적용)
 if "auth_token" in st.query_params and not st.session_state.get('authenticated'):
     try:
-        decoded_email = base64.b64decode(st.query_params["auth_token"]).decode('utf-8')
-        if not ALLOWED_DOMAIN or decoded_email.endswith(f"@{ALLOWED_DOMAIN}"):
+        decoded_email = verify_auth_token(st.query_params["auth_token"])
+        if decoded_email and (not ALLOWED_DOMAIN or decoded_email.endswith(f"@{ALLOWED_DOMAIN}")):
             st.session_state['authenticated'] = True
             st.session_state['user_email'] = decoded_email
     except Exception: pass
@@ -680,7 +705,8 @@ if code_param and not st.session_state['authenticated']:
         else:
             st.session_state['authenticated'] = True
             st.session_state['user_email'] = email
-            auth_token = base64.b64encode(email.encode('utf-8')).decode('utf-8')
+            # [수정] 보안 인증 토큰 (HMAC) 생성 후 쿼리에 담기
+            auth_token = create_auth_token(email)
             st.query_params.clear()
             st.query_params["auth_token"] = auth_token
             st.rerun()
@@ -1812,7 +1838,7 @@ elif menu == "관리자 메뉴":
 
         with admin_tab4:
             st.markdown("### 🚨 저장소 파일 및 인풋/히스토리/임시저장 완전 초기화")
-            st.warning("⚠️ 아래 실행 시 삭제된 파일 및 데이터는 복구할 수 없습니다.")
+            st.warning("⚠️ 아래 실행 시 삭제된 파일 및 데이터는 복구할 수 복구할 수 없습니다.")
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1:
                 if st.button("🗑️ 저장된 PDF 및 AI 인풋 파일 전체 삭제", key="btn_admin_clear_files"):
