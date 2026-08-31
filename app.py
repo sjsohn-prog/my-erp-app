@@ -903,6 +903,11 @@ def recalculate_items_df(df, currency="KRW"):
         u_price = safe_float(df.at[idx, 'UnitPrice'])
         curr_amt = safe_float(df.at[idx, 'Amount'])
 
+        # Qty가 빈 상태에서 UnitPrice만 입력되면 Qty를 1로 자동 설정
+        if qty == 0 and u_price > 0:
+            qty = 1.0
+            df.at[idx, 'Qty'] = "1"
+
         if qty > 0 and u_price >= 0:
             calc_amt = qty * u_price
             fmt_amt = f"{calc_amt:,.0f}" if currency in ["KRW", "JPY"] else f"{calc_amt:,.2f}"
@@ -1520,9 +1525,10 @@ if menu == "서류 파이프라인 Master":
             raw_df = clean_df(st.session_state['doc_items'].copy())
             recalced_df = recalculate_items_df(raw_df, currency=curr_currency)
             
-            recalced_df.insert(0, "No.", range(1, len(recalced_df) + 1))
-            display_cols = ["No."] + [c for c in visible_cols_selected if c in recalced_df.columns]
-            df_for_editor = recalced_df[display_cols]
+            recalced_df_display = recalced_df.copy()
+            recalced_df_display.insert(0, "No.", range(1, len(recalced_df_display) + 1))
+            display_cols = ["No."] + [c for c in visible_cols_selected if c in recalced_df_display.columns]
+            df_for_editor = recalced_df_display[display_cols]
 
             edited_df = st.data_editor(
                 df_for_editor, 
@@ -1532,10 +1538,14 @@ if menu == "서류 파이프라인 Master":
                 column_config={"No.": st.column_config.NumberColumn("No.", disabled=True, width="small")}
             )
 
+            # 수정된 내용 감지 및 즉시 재계산/화면 갱신
             save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
-            st.session_state['doc_items'] = recalculate_items_df(save_edited_df, currency=curr_currency)
-
-            save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
+            new_recalced = recalculate_items_df(save_edited_df, currency=curr_currency)
+            
+            if not new_recalced.equals(st.session_state['doc_items']):
+                st.session_state['doc_items'] = new_recalced
+                save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
+                st.rerun()
 
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
             fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
