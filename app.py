@@ -1538,11 +1538,16 @@ if menu == "서류 파이프라인 Master":
             save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
 
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
-            fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
-            default_total_str = f"{curr_sym}{fmt_tot}"
+fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
+default_total_str = f"{curr_sym}{fmt_tot}"
 
-            col_tot1, col_tot2 = st.columns([1, 1])
-            with col_tot1: custom_total_input = st.text_input("Total Amount", value=default_total_str, key="custom_total_input")
+# 표 변경에 맞춰 위젯 세션 상태를 직접 강제 동기화
+st.session_state['custom_total_input'] = default_total_str
+
+col_tot1, col_tot2 = st.columns([1, 1])
+with col_tot1: 
+    # value 파라미터 대신 session_state 값을 그대로 읽어오도록 설정
+    custom_total_input = st.text_input("Total Amount", key="custom_total_input")
             with col_tot2: vat_note_input = st.text_input("VAT 하단 안내", value="(Excl. VAT 10%)", key="vat_note_input")
 
             final_total_str = custom_total_input.strip() or default_total_str
