@@ -1538,22 +1538,35 @@ if menu == "서류 파이프라인 Master":
                 column_config={"No.": st.column_config.NumberColumn("No.", disabled=True, width="small")}
             )
 
-            # 수정된 내용 감지 및 즉시 재계산/화면 갱신
+            # 1. 수정된 표 내용 감지 및 재계산
             save_edited_df = edited_df.drop(columns=["No."], errors="ignore")
             new_recalced = recalculate_items_df(save_edited_df, currency=curr_currency)
             
+            # 2. 표 데이터가 변경되었을 때 Total Amount 세션 값을 즉시 강제 업데이트
             if not new_recalced.equals(st.session_state['doc_items']):
                 st.session_state['doc_items'] = new_recalced
+                
+                # 합계 금액 실시간 계산 후 위젯 세션 상태(custom_total_input) 직접 갱신
+                calc_total_val = new_recalced["Amount"].apply(safe_float).sum()
+                fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
+                st.session_state['custom_total_input'] = f"{curr_sym}{fmt_tot}"
+                
                 save_user_draft(st.session_state.get('user_email', ''), st.session_state['doc_info'], st.session_state['doc_items'], st.session_state['visible_cols'])
                 st.rerun()
 
+            # 기본 합계 금액 계산
             calc_total_val = st.session_state['doc_items']["Amount"].apply(safe_float).sum()
             fmt_tot = f"{calc_total_val:,.0f}" if curr_currency in ["KRW", "JPY"] else f"{calc_total_val:,.2f}"
             default_total_str = f"{curr_sym}{fmt_tot}"
 
+            # 세션에 값이 없을 경우 초기 세팅
+            if 'custom_total_input' not in st.session_state or not st.session_state['custom_total_input']:
+                st.session_state['custom_total_input'] = default_total_str
+
             col_tot1, col_tot2 = st.columns([1, 1])
             with col_tot1:
-                custom_total_input = st.text_input("Total Amount", value=default_total_str, key="custom_total_input")
+                # value 파라미터 대신 session_state 상의 최신 키 값을 사용
+                custom_total_input = st.text_input("Total Amount", key="custom_total_input")
             with col_tot2:
                 vat_note_input = st.text_input("VAT 하단 안내", value="(Excl. VAT 10%)", key="vat_note_input")
 
